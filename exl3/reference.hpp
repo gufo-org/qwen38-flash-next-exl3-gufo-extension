@@ -9,7 +9,7 @@
 #include <span>
 #include <vector>
 
-namespace gufo::models::qwen38_flash_next::exl3 {
+namespace gufo::ext::qwen38_flash_next_exl3 {
 
 /// Host view of one EXL3 linear: y = H(W^T H(x * suh)) * svh, where W is the
 /// decoded [in, out] trellis matrix and H the 128-point Hadamard per block.
@@ -45,6 +45,6 @@ void Hadamard128(std::span<float> v);
 void DecodeNgramRow(const std::uint16_t* row, int k, const std::uint16_t* bias,
                     float* out);
 
-}  // namespace gufo::models::qwen38_flash_next::exl3
+}  // namespace gufo::ext::qwen38_flash_next_exl3
 
 #endif  // QWEN38_FLASH_NEXT_EXL3_REFERENCE_HPP_

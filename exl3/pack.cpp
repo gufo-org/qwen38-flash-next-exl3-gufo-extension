@@ -7,7 +7,7 @@
 #include <sstream>
 #include <system_error>
 
-namespace gufo::models::qwen38_flash_next::exl3 {
+namespace gufo::ext::qwen38_flash_next_exl3 {
 namespace {
 
 void SetError(std::string* error, std::string message) {
@@ -41,6 +41,10 @@ bool ParseDType(const std::string& name, DType* out, std::size_t* bytes) {
   }
   return false;
 }
+
+/// Payload sample of each file hashed into Pack::Identity().
+constexpr std::uint64_t kSampleBlocks = 64;
+constexpr std::uint64_t kSampleBytes = 4096;
 
 }  // namespace
 
@@ -83,6 +87,20 @@ std::unique_ptr<Pack> Pack::Open(const std::filesystem::path& directory,
     std::uint64_t header = 0;
     std::memcpy(&header, mapped.data(), sizeof(header));
     identity.Update({mapped.data(), static_cast<std::size_t>(8 + header)});
+    // A sample of the payload, so a checkpoint re-quantized to the same
+    // names, dtypes, shapes and offsets gets another identity without
+    // reading every byte: evenly spaced blocks, the last ending the file.
+    const std::uint64_t begin = 8 + header;
+    const std::uint64_t size = mapped.size();
+    if (size > begin) {
+      const std::uint64_t span = size - begin;
+      const std::uint64_t block = std::min<std::uint64_t>(kSampleBytes, span);
+      for (std::uint64_t i = 0; i < kSampleBlocks; ++i) {
+        const std::uint64_t at =
+            begin + (span - block) * i / (kSampleBlocks - 1);
+        identity.Update({mapped.data() + at, static_cast<std::size_t>(block)});
+      }
+    }
   }
   pack->identity_ = identity.FinishHex();
   pack->index_.reserve(pack->tensors_.size());
@@ -222,4 +240,4 @@ std::uint32_t PackContextLength(const std::filesystem::path& directory) {
   }
 }
 
-}  // namespace gufo::models::qwen38_flash_next::exl3
+}  // namespace gufo::ext::qwen38_flash_next_exl3

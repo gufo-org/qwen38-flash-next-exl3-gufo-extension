@@ -16,7 +16,7 @@
 #include "exl3/pack.hpp"
 
 namespace fs = std::filesystem;
-namespace fmt = gufo::models::qwen38_flash_next::exl3;
+namespace fmt = gufo::ext::qwen38_flash_next_exl3;
 
 namespace {
 
@@ -134,7 +134,8 @@ void ValidPack() {
   Expect(pack->Find("missing") == nullptr, "unknown tensor");
   Expect(pack->Identity().size() == 64, "identity is a sha256 hex digest");
 
-  // The identity covers config.json and the headers, not tensor payloads.
+  // The identity covers config.json, the headers and a payload sample whose
+  // last block ends each file.
   const std::string identity = pack->Identity();
   WriteSafetensors(dir.path() / "b.safetensors",
                    "{" + Entry("lm_head", "BF16", "[2,2]", 0, 8) + "}", 8);
@@ -145,8 +146,8 @@ void ValidPack() {
     f.put('\x01');
   }
   const auto same_headers = fmt::Pack::Open(dir.path(), &error);
-  Expect(same_headers != nullptr && same_headers->Identity() == identity,
-         "payload change keeps the identity");
+  Expect(same_headers != nullptr && same_headers->Identity() != identity,
+         "payload change under the same headers changes the identity");
   WriteText(dir.path() / "config.json",
             std::string(kExl3Config)
                 .replace(std::string(kExl3Config).find("4.05"), 4, "3.05"));

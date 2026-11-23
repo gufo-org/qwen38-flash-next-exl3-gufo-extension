@@ -12,7 +12,7 @@
 #include "exl3/format.hpp"
 #include "exl3/reference.hpp"
 
-namespace fmt = gufo::models::qwen38_flash_next::exl3;
+namespace fmt = gufo::ext::qwen38_flash_next_exl3;
 
 namespace {
 

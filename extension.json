@@ -25,7 +25,7 @@
       "speculative": [
         "mtp"
       ],
-      "target": "gufo_qwen38_flash_next_exl3",
+      "target": "gufo_qwen38_flash_next_exl3_hip",
       "entry": "qwen38_flash_next_exl3_4bpw_provider_register"
     },
     {
@@ -41,7 +41,7 @@
       "speculative": [
         "mtp"
       ],
-      "target": "gufo_qwen38_flash_next_exl3",
+      "target": "gufo_qwen38_flash_next_exl3_hip",
       "entry": "qwen38_flash_next_exl3_3bpw_provider_register"
     },
     {
@@ -57,7 +57,7 @@
       "speculative": [
         "mtp"
       ],
-      "target": "gufo_qwen38_flash_next_exl3",
+      "target": "gufo_qwen38_flash_next_exl3_hip",
       "entry": "qwen38_flash_next_exl3_2bpw_provider_register"
     }
   ],
@@ -216,6 +216,19 @@
       "role": "test"
     },
     "qwen38_flash_next_exl3_gemv_bench": {
+      "requires": [
+        "hip",
+        "testing"
+      ],
+      "role": "test"
+    },
+    "qwen38_flash_next_exl3_bind_test": {
+      "requires": [
+        "testing"
+      ],
+      "role": "test"
+    },
+    "qwen38_flash_next_exl3_generate_test": {
       "requires": [
         "hip",
         "testing"

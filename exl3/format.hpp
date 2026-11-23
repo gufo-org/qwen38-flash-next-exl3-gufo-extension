@@ -17,7 +17,7 @@
 #define GUFO_EXL3_UNROLL
 #endif
 
-namespace gufo::models::qwen38_flash_next::exl3 {
+namespace gufo::ext::qwen38_flash_next_exl3 {
 
 /// Presence marker of the mul1 codebook (`<name>.mul1`, I32 scalar).
 inline constexpr std::uint32_t kMul1 = 0x83DCD12DU;
@@ -207,6 +207,6 @@ GUFO_EXL3_HD inline std::uint32_t NgramState(const std::uint16_t* row, int i) {
   return state & 0xFFFFU;
 }
 
-}  // namespace gufo::models::qwen38_flash_next::exl3
+}  // namespace gufo::ext::qwen38_flash_next_exl3
 
 #endif  // QWEN38_FLASH_NEXT_EXL3_FORMAT_HPP_

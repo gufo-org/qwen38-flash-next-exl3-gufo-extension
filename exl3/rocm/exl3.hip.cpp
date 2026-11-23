@@ -19,10 +19,10 @@
 
 #include "exl3/format.hpp"
 
-namespace gufo::models::qwen38_flash_next::rocm {
+namespace gufo::ext::qwen38_flash_next_exl3::rocm {
 namespace {
 
-namespace fmt = ::gufo::models::qwen38_flash_next::exl3;
+namespace fmt = ::gufo::ext::qwen38_flash_next_exl3;
 
 constexpr int kWaves = 8;
 constexpr int kBlockThreads = kWaves * 32;
@@ -1790,4 +1790,4 @@ void Exl3GatherScales(const std::uint8_t* base, const std::uint64_t* offsets,
                      base, offsets, count, src_len, blocks, dst_len, dst);
 }
 
-}  // namespace gufo::models::qwen38_flash_next::rocm
+}  // namespace gufo::ext::qwen38_flash_next_exl3::rocm

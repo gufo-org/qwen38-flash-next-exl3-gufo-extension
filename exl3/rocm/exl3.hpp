@@ -17,7 +17,7 @@
 /// 128-point Hadamard of each block. Tiles are stored column-block-major:
 /// tile (a, b) of an expert lives at (b * in/16 + a) * 8K dwords, so a wave
 /// streaming one 16-column block reads contiguous memory.
-namespace gufo::models::qwen38_flash_next::rocm {
+namespace gufo::ext::qwen38_flash_next_exl3::rocm {
 
 struct Exl3Weights {
   const std::uint32_t* tiles{nullptr};  ///< [experts][out/16][in/16][8K]
@@ -205,6 +205,6 @@ void Exl3GatherScales(const std::uint8_t* base, const std::uint64_t* offsets,
                       const std::uint32_t* blocks, std::uint32_t dst_len,
                       __half* dst, hipStream_t stream);
 
-}  // namespace gufo::models::qwen38_flash_next::rocm
+}  // namespace gufo::ext::qwen38_flash_next_exl3::rocm
 
 #endif  // QWEN38_FLASH_NEXT_EXL3_ROCM_EXL3_HPP_

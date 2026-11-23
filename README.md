@@ -4,28 +4,30 @@ A Gufo extension for turboderp's EXL3 checkpoints of Qwen3.8 Flash-Next on
 Linux x86-64 / Strix Halo `gfx1151`. It builds on the Flash-Next runtime of
 Gufo's `qwen38_flash_next` extension instead of copying it.
 
-**Status: format and kernels only.** This repository holds the EXL3 trellis
-format, the checkpoint reader, the scalar host reference and the HIP linears,
-with their tests. It does not serve a model yet. Serving waits for the
-Flash-Next Stages and WeightSource interface; see
-[not ported yet](#not-ported-yet).
+It serves the three checkpoints, `flash-next-exl3-4bpw`,
+`flash-next-exl3-3bpw` and `flash-next-exl3-2bpw`, through Flash-Next's
+`Stages` and `WeightSource` interface: Flash-Next keeps the pipeline (passes,
+KV, recurrent state, MTP, rollback, snapshots, sampling), and this extension
+supplies the checkpoint binding, the trellis upload and the stages that run
+EXL3 linears. `--speculative mtp` drafts from the checkpoint's own MTP block
+and needs no `--mtp-model`.
 
-The extension declares the three providers it will serve,
-`flash-next-exl3-4bpw`, `flash-next-exl3-3bpw` and `flash-next-exl3-2bpw`,
-with their final IDs, so `gufo model` can install their weights now (see
-[model weights](#model-weights)). Each registers as unavailable until serving
-lands. Their keys, `safetensors:qwen4_exp` and
+```sh
+gufo model install flash-next-exl3-4bpw
+gufo serve llm --model flash-next-exl3-4bpw --speculative mtp --context 32768
+gufo prompt -m /path/to/4.05bpw_h6_ng6 -p "Hello" --think off
+```
+
+The providers' keys, `safetensors:qwen4_exp` and
 `safetensors:Qwen4ExpForConditionalGeneration`, are the ones Gufo's EXL3
-branch used, and Gufo has no narrower key. They are broad placeholders: they
-match any Flash-Next safetensors checkpoint, BF16 included, not only EXL3
-ones. Probes cannot settle the overlap everywhere. Gufo refuses to install a
-loadable module (`gufo extension install`) whose text provider shares a key
-with a registered provider, whether or not that provider is available. CMake
-discovery also stops when a shipped and an unshipped extension share a key. A
-future BF16 or FP8 Flash-Next safetensors extension would therefore conflict
-with this one until the keys can be narrowed. The unavailable reason shows only in
-`gufo diagnose --section extensions`. Loading a checkpoint directory fails
-with "no text provider claims model directory".
+branch used, and Gufo has no narrower key. They are broad: they match any
+Flash-Next safetensors checkpoint, BF16 included, and each provider's probe
+then accepts only EXL3 directories of its bit width. Gufo refuses to install
+a loadable module (`gufo extension install`) whose text provider shares a key
+with a registered provider, and CMake discovery stops when a shipped and an
+unshipped extension share a key. A future BF16 or FP8 Flash-Next safetensors
+extension would therefore conflict with this one until the keys can be
+narrowed.
 
 Maintainer: Federico Izzo ([fedeizzo](https://github.com/fedeizzo)).
 
@@ -33,7 +35,7 @@ Maintainer: Federico Izzo ([fedeizzo](https://github.com/fedeizzo)).
 
 | Extension | Gufo | Notes |
 | --- | --- | --- |
-| 0.1.0 | `cab68390c0ddb7e944cd363287b836a54237c48a` ([#1360](https://github.com/gufo-org/gufo/pull/1360)) | Needs `depends` linking and the `gufo::qwen38_flash_next_hip` export |
+| 0.1.0 | `8de28b7f663bfb970bb8dca8d16137583519c790` plus open PRs (see below) | Needs Flash-Next `Stages`/`WeightSource` ([#1364](https://github.com/gufo-org/gufo/pull/1364), merged), `depends` linking and exports ([#1360](https://github.com/gufo-org/gufo/pull/1360)), `QwenTokenizer::CreateFromTokenizerJson` ([#1359](https://github.com/gufo-org/gufo/pull/1359)), `gufo::qwen_family` ([#1361](https://github.com/gufo-org/gufo/pull/1361)) and the n-gram row-decoder hook |
 
 The extension depends on `qwen38_flash_next` (`"depends"` in
 [extension.json](extension.json)). Links to that extension's export carry no
@@ -47,7 +49,7 @@ compatibility promise, so pin the Gufo revision you tested.
 | `flash-next-exl3-3bpw` | `3.05bpw_h5_ng5` | 86 GB | 1.426 |
 | `flash-next-exl3-2bpw` | `2.05bpw_h4_ng4` | 64 GB | 1.439 |
 
-These are the checkpoints the providers will serve, measured with Gufo's EXL3
+These are the checkpoints the providers serve, measured with Gufo's EXL3
 branch. Each is a directory of safetensors files that contains the MTP head.
 Its n-gram table (39, 33 and 26 GB) never enters GPU memory: rows are read from
 disk per token. The checkpoints are revisions of
@@ -75,12 +77,8 @@ gufo model update flash-next-exl3-2bpw   # follow a new lock
 gufo model remove flash-next-exl3-2bpw
 ```
 
-**Serving is not available yet.** An installed model can't be passed to
-`--model` yet: `gufo prompt` fails with "no text provider claims model
-directory", and `gufo serve llm` fails with "No text provider found for model
-architecture". `gufo model list` shows `available` in the sense of
-downloadable. It does not report provider availability; `gufo diagnose
---section extensions` does.
+`gufo model list` shows `available` in the sense of downloadable; `gufo
+diagnose --section extensions` reports the providers.
 
 `install` reuses a file from the Hugging Face cache (`$HF_HUB_CACHE`, else
 `$HF_HOME/hub`) when `models--<owner>--<repo>/blobs/<sha256>` exists for the
@@ -113,30 +111,38 @@ store's links, and the original files stay.
 | `exl3/pack.{hpp,cpp}` | Read-only view of an EXL3 checkpoint directory: mapped safetensors, tensor index, JSON configuration, cache identity |
 | `exl3/reference.{hpp,cpp}` | Scalar host reference of EXL3 linears and n-gram rows |
 | `exl3/rocm/exl3.{hpp,hip.cpp}` | EXL3 linears for gfx11 wave32: decode GEMV, expert GEMM, Q8_0 expansion, repacking |
-| `extension.cpp` | Registration of the three providers, unavailable until serving lands |
+| `extension.cpp` | Extension entry; the providers register from `flash_next/provider.cpp` |
+| `flash_next/bind.{hpp,cpp}` | Flash-Next configuration and weight descriptors from a pack: trellis linears carry an `Exl3Ref` as `format_state`, norms are folded, DeltaNet heads permuted, hyper-connection and PLE projections quantized to Q8_0 |
+| `flash_next/weight_source.{hpp,cpp}` | `WeightSource`: probe, bind, `tokenizer.json`, trellis n-gram rows, trellis upload and repack, Q8_0 draft head, cache identity, 8,192-row prompt passes |
+| `flash_next/stages.{hpp,cpp}` | `Stages`: grouped trellis GEMVs for decode and verification, trellis GEMMs for prompt passes, the MoE FFN on both, and the per-layer Q8_0 expansion prompt passes run on (`PromptLayer`) |
+| `flash_next/runner.{hpp,cpp}`, `flash_next/provider.cpp` | Text runner and the three providers, told apart by the checkpoint's bits per weight |
 | `models.lock.json` | Size and SHA-256 of every model file, from Gufo's EXL3 branch |
 | `tests/exl3_format_test.cpp` | Format contracts against Crucible's NumPy reference and ExLlamaV3's n-gram codec; no GPU |
 | `tests/exl3_pack_test.cpp` | Checkpoint reader on tiny synthetic safetensors directories: detection, config queries, identity inputs, malformed headers; no GPU |
 | `tests/exl3_ops_test.cpp` | Every kernel against the host reference for K2 to K6; GPU, labelled `slow` (about 35 s) |
 | `tests/exl3_gemv_bench.cpp` | Decode and prompt-pass linear timings on random weights; run by hand |
+| `tests/exl3_bind_test.cpp` | Binds a real checkpoint and checks the descriptors; no GPU, skips without `QWEN38_FLASH_NEXT_EXL3_MODEL` |
+| `tests/exl3_generate_test.cpp` | Greedy generation through `Model::Load` with these stages and source, and prompt against decode path; GPU, skips without `QWEN38_FLASH_NEXT_EXL3_MODEL` |
 
 The code comes from Gufo's `feat/qwen38-flash-next-exl3` branch, commits
 `197ff374` (EXL3 checkpoints) and `bb5dff44` (faster decode and prompt
-passes), rebased on Gufo `main`. Git history was not carried over. The C++
-namespaces are still `gufo::models::qwen38_flash_next::{exl3,rocm}`. Changes
-from the branch, besides include paths and header guards:
+passes), rebased on Gufo `main`. Git history was not carried over. The code
+lives in `gufo::ext::qwen38_flash_next_exl3` (kernels in its `rocm`
+namespace). Changes from the branch, besides include paths and header guards:
 
 - `exl3/pack.{hpp,cpp}`: `Pack::Open` rejects tensor offsets and shapes whose
   64-bit arithmetic wraps (`PackTensor::CheckedBytes`, and an end bound checked
-  against the bytes after the header).
+  against the bytes after the header). `Pack::Identity()` also hashes 64
+  evenly spaced 4 KiB blocks of each file's payload, so a checkpoint
+  re-quantized to the same layout gets another cache identity.
 - `exl3/rocm/exl3.hpp`: attribution of the front tile order to Crucible's
   `FrontTile`.
-- `tests/exl3_pack_test.cpp` is new.
-
-`Pack::Identity()` hashes only `config.json` and the safetensors headers, not
-tensor payloads: a checkpoint re-quantized to the same names, dtypes, shapes
-and offsets gets the same identity. Fix this before serving uses it as a cache
-key.
+- The branch's hooks in the Flash-Next executor, device model, engine and
+  runner became `Stages` and `WeightSource` overrides (`flash_next/`). The
+  prompt-pass shared expert still forks after the routed gate and up; the
+  repack staging is freed after the last trellis tensor of the upload.
+- `tests/exl3_pack_test.cpp` is new; the bind and generate probes became the
+  model-gated `bind` and `generate` tests.
 
 `exl3_ops_test` compares the fused SwiGLU group with Flash-Next's own `Swiglu`
 kernel, so it includes `src/models/qwen38_flash_next/kernels/rocm/kernels.hpp`
@@ -150,9 +156,13 @@ cmake --preset gpu-test -B build/exl3 \
   -DGUFO_EXTENSION_DIRS=/absolute/path/to/qwen38-flash-next-exl3-gufo-extension
 cmake --build build/exl3 --parallel 4 --target \
   qwen38_flash_next_exl3_format_test qwen38_flash_next_exl3_pack_test \
-  qwen38_flash_next_exl3_ops_test \
-  qwen38_flash_next_exl3_gemv_bench
+  qwen38_flash_next_exl3_ops_test qwen38_flash_next_exl3_bind_test \
+  qwen38_flash_next_exl3_generate_test qwen38_flash_next_exl3_gemv_bench
 ctest --test-dir build/exl3 -R '^qwen38_flash_next_exl3\.' --output-on-failure
+# The bind and generate tests skip unless a checkpoint is named:
+QWEN38_FLASH_NEXT_EXL3_MODEL=/path/to/4.05bpw_h6_ng6 \
+  ctest --test-dir build/exl3 -R '^qwen38_flash_next_exl3\.(bind|generate)$' \
+  --output-on-failure
 build/exl3/qwen38_flash_next_exl3_gemv_bench
 ```
 
@@ -169,36 +179,35 @@ nix build
 ```
 
 Format C++ with Gufo's [.clang-format](.clang-format):
-`clang-format -i exl3/*.hpp exl3/*.cpp exl3/rocm/* tests/*.cpp extension.cpp`.
+`clang-format -i exl3/*.hpp exl3/*.cpp exl3/rocm/* flash_next/* tests/*.cpp extension.cpp`.
 
-## Not ported yet
+## Gaps in the Flash-Next interface
 
-These parts of the EXL3 branch stay in Gufo's branch until Flash-Next
-exposes its layered library (RFC step 5: `gufo::qwen_flash_next` with
-`Stages`, `WeightSource` and opaque `Layer`/`Tensor` handles).
+The extension works around these until Gufo exposes them:
 
-| Branch code | What it does | Interface it needs |
-| --- | --- | --- |
-| `exl3/bind.cpp` (`Config::FromExl3`, `ModelWeights::BindExl3`, `MtpWeights::BindExl3`) | Builds the Flash-Next configuration and weight descriptors from a pack; converts BF16/F16 tensors to Q8_0 | `WeightSource::Bind()` returning descriptors, host payloads and a per-tensor `format_state`; a public Flash-Next config type |
-| `weights.hpp` `Exl3Ref`, `Exl3NgramRef`, `TensorRef::exl3`, `ple_exl3` | EXL3 fields on Flash-Next weight descriptors | `Tensor::format_state`, owned by the extension |
-| `kernels/rocm/device_model.{hpp,cpp}` `UploadExl3`, `DeviceTensor::exl3_*` | Uploads trellis tiles, Hadamard signs and front-order tiles | `WeightSource::Upload(tensor, device)` |
-| `kernels/rocm/executor.{hpp,cpp}` `Exl3Project`, `Exl3RowGroup`, `Exl3MoeRows`, `Exl3PromptLayer`, `Exl3ExpandLayer`, `exl3_scratch_` | Dispatches EXL3 linears in decode, verification and prompt passes | `Stages::Linear`, `Stages::LinearGroup`, `Stages::MoeFfn`, `Stages::ScratchBytes`, with HIP graph capture kept working |
-| `ngram.{hpp,cpp}` trellis rows | Decodes n-gram rows of the on-disk table | An n-gram row source hook in Flash-Next's n-gram embedding |
-| `engine.{hpp,cpp}`, `runner.cpp` pack handling | Opens the pack instead of a GGUF, larger prompt chunk, cache identity, checkpoint MTP head | `WeightSource::Probe`, `Identity`, `Tokenizer`, `PreferredPrefillChunk`; nullable GGUF reader in the text loader |
-| `probe.{hpp,cpp}` `ProbeFlashNextExl3` | Accepts an EXL3 checkpoint directory | `WeightSource::Probe(path)` and model-directory probing in Gufo's loader |
-| `src/models/qwen38_flash_next_exl3_{2,3,4}bpw/` provider code | One provider per checkpoint; the IDs, models and locks are already here | `qwen_flash_next::Create(Options, Stages, WeightSource)`; the registrations in `extension.cpp` then become real providers |
-| `tests/.../exl3_bind_probe.cpp`, `exl3_generate_probe.cpp` | Bind and end-to-end generation probes on real checkpoints | The bind and create paths above |
-| Tokenizer from `tokenizer.json` | Checkpoint tokenizer | `QwenTokenizer::CreateFromTokenizerJson` in the Qwen family layer |
+- Flash-Next's n-gram table reads only GGUF row formats. The pinned Gufo
+  revision carries a row-decoder hook (`NgramTable::OpenEncoded`) that is not
+  on `main` yet.
+- `Config::Validated` is private, so `flash_next/bind.cpp` repeats
+  Flash-Next's configuration checks.
+- `CreateQwenFlashNextTextRunner(options)` assumes a GGUF, so
+  `flash_next/runner.cpp` repeats its context, MTP, session-fit and
+  fingerprint logic before calling the overload that takes a model.
+- `WeightSource` has no end-of-upload call; the source counts its tensors to
+  free the repack staging.
+- The Flash-Next headers are private Gufo headers reached through the
+  `gufo::qwen38_flash_next` exports.
 
 ## TODO
 
+- Re-pin [flake.nix](flake.nix), `flake.lock` and the supported revision
+  above once #1359, #1360, #1361 and the n-gram row-decoder hook are on Gufo
+  `main`; until then `nix build` of this flake does not build, and builds use
+  a Gufo checkout with those changes merged locally.
 - Raise `api_version` in [extension.json](extension.json) to the extension
-  API revision of gufo-org/gufo#1360's change record once #1360 merges.
-- Once #1360 merges, re-pin [flake.nix](flake.nix), `flake.lock` and the
-  supported revision above to its squash commit on Gufo `main`.
-- Move the code to an extension-owned namespace in a follow-up PR.
-- Hash the tensor payloads (or a checkpoint revision) into `Pack::Identity()`
-  before serving uses it as a cache key.
+  API revision of #1360's change record once it merges.
+- Drop the workarounds listed under
+  [gaps](#gaps-in-the-flash-next-interface) as Gufo exposes each piece.
 
 ## License
 
