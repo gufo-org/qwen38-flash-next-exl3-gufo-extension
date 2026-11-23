@@ -16,9 +16,14 @@ with their final IDs, so `gufo model` can install their weights now (see
 [model weights](#model-weights)). Each registers as unavailable until serving
 lands. Their keys, `safetensors:qwen4_exp` and
 `safetensors:Qwen4ExpForConditionalGeneration`, are the ones Gufo's EXL3
-branch used, and Gufo has no narrower key. They match any Flash-Next
-safetensors checkpoint, BF16 included, not only EXL3 ones; the providers'
-probes will tell them apart. The unavailable reason shows only in
+branch used, and Gufo has no narrower key. They are broad placeholders: they
+match any Flash-Next safetensors checkpoint, BF16 included, not only EXL3
+ones. Probes cannot settle the overlap everywhere. Gufo refuses to install a
+loadable module (`gufo extension install`) whose text provider shares a key
+with a registered provider, whether or not that provider is available. CMake
+discovery also stops when a shipped and an unshipped extension share a key. A
+future BF16 or FP8 Flash-Next safetensors extension would therefore conflict
+with this one until the keys can be narrowed. The unavailable reason shows only in
 `gufo diagnose --section extensions`. Loading a checkpoint directory fails
 with "no text provider claims model directory".
 
@@ -78,15 +83,23 @@ downloadable. It does not report provider availability; `gufo diagnose
 --section extensions` does.
 
 `install` reuses a file from the Hugging Face cache (`$HF_HUB_CACHE`, else
-`$HF_HOME/hub`) when the cache holds a blob with the locked SHA-256. To install
-a checkpoint you already downloaded without fetching it again, hard-link its
-files into a cache directory named by SHA-256, on the same file system:
+`$HF_HOME/hub`) when `models--<owner>--<repo>/blobs/<sha256>` exists for the
+component's repository, with the SHA-256 from `models.lock.json`. To install a
+checkpoint you already downloaded without fetching it again, hard-link every
+file of every component into its repository's `blobs` directory, on the same
+file system. Name each link by the file's locked SHA-256. A real Hugging Face
+cache names small non-LFS files (JSON, Jinja, text, `LICENSE`) by their Git
+SHA-1 instead, so `install` downloads those files again.
 
 ```sh
-# For each file of the model in models.lock.json:
+# Weights: every file of the model's "weights" entry in models.lock.json.
 mkdir -p "$HF_HUB_CACHE/models--turboderp--Qwen3.8-Flash-Next-exl3/blobs"
 ln /path/to/2.05bpw_h4_ng4/<path> \
   "$HF_HUB_CACHE/models--turboderp--Qwen3.8-Flash-Next-exl3/blobs/<sha256>"
+# Image projector: the "mmproj" entry, from another repository.
+mkdir -p "$HF_HUB_CACHE/models--unsloth--Qwen3.8-Flash-Next-GGUF/blobs"
+ln /path/to/mmproj-BF16.gguf \
+  "$HF_HUB_CACHE/models--unsloth--Qwen3.8-Flash-Next-GGUF/blobs/<sha256>"
 ```
 
 `install` still hashes each file before using it. `remove` deletes only the
