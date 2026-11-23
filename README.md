@@ -35,7 +35,7 @@ Maintainer: Federico Izzo ([fedeizzo](https://github.com/fedeizzo)).
 
 | Extension | Gufo | Notes |
 | --- | --- | --- |
-| 0.1.0 | `8c646451d91f1dd2234c9a763a2c68715f32f506` plus open PRs (see below) | Needs Flash-Next `Stages`/`WeightSource` ([#1364](https://github.com/gufo-org/gufo/pull/1364), merged), `depends` linking and exports ([#1360](https://github.com/gufo-org/gufo/pull/1360), merged), `QwenTokenizer::CreateFromTokenizerJson` ([#1359](https://github.com/gufo-org/gufo/pull/1359)), `gufo::qwen_family` ([#1361](https://github.com/gufo-org/gufo/pull/1361)) and the n-gram row-decoder hook |
+| 0.1.0 | `91f11c8605632b7f5b9cf8b095a136db3496c600` plus open PRs (see below) | Needs Flash-Next `Stages`/`WeightSource` ([#1364](https://github.com/gufo-org/gufo/pull/1364), merged), `depends` linking and exports ([#1360](https://github.com/gufo-org/gufo/pull/1360), merged), `QwenTokenizer::CreateFromTokenizerJson` ([#1359](https://github.com/gufo-org/gufo/pull/1359)), `gufo::qwen_family` ([#1361](https://github.com/gufo-org/gufo/pull/1361), merged) and the n-gram row-decoder hook |
 
 The extension depends on `qwen38_flash_next` (`"depends"` in
 [extension.json](extension.json)). Links to that extension's export carry no
@@ -201,7 +201,7 @@ The extension works around these until Gufo exposes them:
 ## TODO
 
 - Re-pin [flake.nix](flake.nix), `flake.lock` and the supported revision
-  above once #1359, #1361 and the n-gram row-decoder hook are on Gufo
+  above once #1359 and the n-gram row-decoder hook are on Gufo
   `main`; until then `nix build` of this flake does not build, and builds use
   a Gufo checkout with those changes merged locally.
 - Drop the workarounds listed under
