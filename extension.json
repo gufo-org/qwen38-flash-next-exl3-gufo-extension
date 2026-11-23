@@ -13,17 +13,177 @@
   ],
   "providers": [
     {
-      "id": "flash-next-exl3",
+      "id": "flash-next-exl3-4bpw",
       "capability": "text_generation",
       "keys": [
         "safetensors:qwen4_exp",
         "safetensors:Qwen4ExpForConditionalGeneration"
       ],
       "model_ids": [
-        "flash-next-exl3"
+        "flash-next-exl3-4bpw"
+      ],
+      "speculative": [
+        "mtp"
       ],
       "target": "gufo_qwen38_flash_next_exl3",
-      "entry": "qwen38_flash_next_exl3_provider_register"
+      "entry": "qwen38_flash_next_exl3_4bpw_provider_register"
+    },
+    {
+      "id": "flash-next-exl3-3bpw",
+      "capability": "text_generation",
+      "keys": [
+        "safetensors:qwen4_exp",
+        "safetensors:Qwen4ExpForConditionalGeneration"
+      ],
+      "model_ids": [
+        "flash-next-exl3-3bpw"
+      ],
+      "speculative": [
+        "mtp"
+      ],
+      "target": "gufo_qwen38_flash_next_exl3",
+      "entry": "qwen38_flash_next_exl3_3bpw_provider_register"
+    },
+    {
+      "id": "flash-next-exl3-2bpw",
+      "capability": "text_generation",
+      "keys": [
+        "safetensors:qwen4_exp",
+        "safetensors:Qwen4ExpForConditionalGeneration"
+      ],
+      "model_ids": [
+        "flash-next-exl3-2bpw"
+      ],
+      "speculative": [
+        "mtp"
+      ],
+      "target": "gufo_qwen38_flash_next_exl3",
+      "entry": "qwen38_flash_next_exl3_2bpw_provider_register"
+    }
+  ],
+  "models": [
+    {
+      "id": "flash-next-exl3-4bpw",
+      "provider": "flash-next-exl3-4bpw",
+      "license": "qwen-community-1.0",
+      "description": "Qwen3.8 Flash-Next, EXL3 4.05 bpw (turboderp 4.05bpw_h6_ng6)",
+      "components": [
+        {
+          "role": "weights",
+          "option": "--model",
+          "install": "required",
+          "source": {
+            "hf": "turboderp/Qwen3.8-Flash-Next-exl3",
+            "revision": "55a732e0c4c3d4614bc42b68493bb930d9b02c0a"
+          },
+          "include": [
+            "*.safetensors",
+            "*.json",
+            "*.jinja",
+            "*.txt",
+            "LICENSE"
+          ],
+          "exclude": [
+            "qbench_prompts.json",
+            "quantization_config.json"
+          ],
+          "entry": "."
+        },
+        {
+          "role": "mmproj",
+          "option": "--mmproj",
+          "install": "default",
+          "source": {
+            "hf": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "d96201194f103c906994f283f504209dc8d2a10c"
+          },
+          "include": [
+            "mmproj-BF16.gguf"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "flash-next-exl3-3bpw",
+      "provider": "flash-next-exl3-3bpw",
+      "license": "qwen-community-1.0",
+      "description": "Qwen3.8 Flash-Next, EXL3 3.05 bpw (turboderp 3.05bpw_h5_ng5)",
+      "components": [
+        {
+          "role": "weights",
+          "option": "--model",
+          "install": "required",
+          "source": {
+            "hf": "turboderp/Qwen3.8-Flash-Next-exl3",
+            "revision": "69e33439ae950f17bcbe95c98f117d80f759ab6d"
+          },
+          "include": [
+            "*.safetensors",
+            "*.json",
+            "*.jinja",
+            "*.txt",
+            "LICENSE"
+          ],
+          "exclude": [
+            "qbench_prompts.json",
+            "quantization_config.json"
+          ],
+          "entry": "."
+        },
+        {
+          "role": "mmproj",
+          "option": "--mmproj",
+          "install": "default",
+          "source": {
+            "hf": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "d96201194f103c906994f283f504209dc8d2a10c"
+          },
+          "include": [
+            "mmproj-BF16.gguf"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "flash-next-exl3-2bpw",
+      "provider": "flash-next-exl3-2bpw",
+      "license": "qwen-community-1.0",
+      "description": "Qwen3.8 Flash-Next, EXL3 2.05 bpw (turboderp 2.05bpw_h4_ng4)",
+      "components": [
+        {
+          "role": "weights",
+          "option": "--model",
+          "install": "required",
+          "source": {
+            "hf": "turboderp/Qwen3.8-Flash-Next-exl3",
+            "revision": "65c895314393431c09050b2e04e250836b3a6eb4"
+          },
+          "include": [
+            "*.safetensors",
+            "*.json",
+            "*.jinja",
+            "*.txt",
+            "LICENSE"
+          ],
+          "exclude": [
+            "qbench_prompts.json",
+            "quantization_config.json"
+          ],
+          "entry": "."
+        },
+        {
+          "role": "mmproj",
+          "option": "--mmproj",
+          "install": "default",
+          "source": {
+            "hf": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "d96201194f103c906994f283f504209dc8d2a10c"
+          },
+          "include": [
+            "mmproj-BF16.gguf"
+          ]
+        }
+      ]
     }
   ],
   "options": [],
