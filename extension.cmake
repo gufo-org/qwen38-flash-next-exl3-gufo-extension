@@ -1,6 +1,7 @@
 # Qwen3.8 Flash-Next EXL3: the trellis format, checkpoint reader, host
-# reference and HIP linears. Providers come once Flash-Next exposes its
-# Stages and WeightSource interface; see README.md.
+# reference and HIP linears. The three checkpoint providers are registered
+# unavailable until Flash-Next exposes its Stages and WeightSource
+# interface; see README.md.
 
 # Host code: format primitives, the safetensors pack view and the scalar
 # reference. pack.cpp hashes with <gufo/ext/sha256.hpp>, whose header

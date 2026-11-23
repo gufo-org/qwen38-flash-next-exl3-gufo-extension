@@ -10,13 +10,22 @@ with their tests. It does not serve a model yet. Serving waits for the
 Flash-Next Stages and WeightSource interface; see
 [not ported yet](#not-ported-yet).
 
-Gufo requires every extension to declare a provider, so this one declares a
-placeholder, `flash-next-exl3`, which registers as unavailable. Its keys,
-`safetensors:qwen4_exp` and `safetensors:Qwen4ExpForConditionalGeneration`,
+The extension declares the three providers it will serve,
+`flash-next-exl3-4bpw`, `flash-next-exl3-3bpw` and `flash-next-exl3-2bpw`,
+with their final IDs, so `gufo model` can install their weights now (see
+[model weights](#model-weights)). Each registers as unavailable until serving
+lands. Their keys, `safetensors:qwen4_exp` and
+`safetensors:Qwen4ExpForConditionalGeneration`, are the ones Gufo's EXL3
+branch used, and Gufo has no narrower key. They are broad placeholders: they
 match any Flash-Next safetensors checkpoint, BF16 included, not only EXL3
-ones. They are placeholders for the real providers. The unavailable reason
-shows only in `gufo diagnose --section extensions`; loading a checkpoint
-directory fails with "no text provider claims model directory".
+ones. Probes cannot settle the overlap everywhere. Gufo refuses to install a
+loadable module (`gufo extension install`) whose text provider shares a key
+with a registered provider, whether or not that provider is available. CMake
+discovery also stops when a shipped and an unshipped extension share a key. A
+future BF16 or FP8 Flash-Next safetensors extension would therefore conflict
+with this one until the keys can be narrowed. The unavailable reason shows only in
+`gufo diagnose --section extensions`. Loading a checkpoint directory fails
+with "no text provider claims model directory".
 
 Maintainer: Federico Izzo ([fedeizzo](https://github.com/fedeizzo)).
 
@@ -47,6 +56,55 @@ disk per token. The checkpoints are revisions of
 license (`qwen-community-1.0`) and are downloaded separately.
 [EXL3 notes](docs/EXL3.md) has the format, kernels, quality and performance.
 
+## Model weights
+
+[extension.json](extension.json) declares one model per checkpoint, with the
+same IDs as its provider. [models.lock.json](models.lock.json) pins every file
+by revision, size and SHA-256. The weights component takes the checkpoint's
+safetensors, JSON, Jinja and text files and its `LICENSE`, without
+`qbench_prompts.json` and `quantization_config.json`. The default `mmproj`
+component is unsloth's `mmproj-BF16.gguf` (908 MB), which Flash-Next uses
+for images.
+
+```sh
+gufo model list                          # the three models, size and install state
+gufo model list --json                   # components, sources and bytes
+gufo model install flash-next-exl3-2bpw  # weights and mmproj
+gufo model verify flash-next-exl3-2bpw   # rehash the installed files
+gufo model update flash-next-exl3-2bpw   # follow a new lock
+gufo model remove flash-next-exl3-2bpw
+```
+
+**Serving is not available yet.** An installed model can't be passed to
+`--model` yet: `gufo prompt` fails with "no text provider claims model
+directory", and `gufo serve llm` fails with "No text provider found for model
+architecture". `gufo model list` shows `available` in the sense of
+downloadable. It does not report provider availability; `gufo diagnose
+--section extensions` does.
+
+`install` reuses a file from the Hugging Face cache (`$HF_HUB_CACHE`, else
+`$HF_HOME/hub`) when `models--<owner>--<repo>/blobs/<sha256>` exists for the
+component's repository, with the SHA-256 from `models.lock.json`. To install a
+checkpoint you already downloaded without fetching it again, hard-link every
+file of every component into its repository's `blobs` directory, on the same
+file system. Name each link by the file's locked SHA-256. A real Hugging Face
+cache names small non-LFS files (JSON, Jinja, text, `LICENSE`) by their Git
+SHA-1 instead, so `install` downloads those files again.
+
+```sh
+# Weights: every file of the model's "weights" entry in models.lock.json.
+mkdir -p "$HF_HUB_CACHE/models--turboderp--Qwen3.8-Flash-Next-exl3/blobs"
+ln /path/to/2.05bpw_h4_ng4/<path> \
+  "$HF_HUB_CACHE/models--turboderp--Qwen3.8-Flash-Next-exl3/blobs/<sha256>"
+# Image projector: the "mmproj" entry, from another repository.
+mkdir -p "$HF_HUB_CACHE/models--unsloth--Qwen3.8-Flash-Next-GGUF/blobs"
+ln /path/to/mmproj-BF16.gguf \
+  "$HF_HUB_CACHE/models--unsloth--Qwen3.8-Flash-Next-GGUF/blobs/<sha256>"
+```
+
+`install` still hashes each file before using it. `remove` deletes only the
+store's links, and the original files stay.
+
 ## Layout
 
 | Path | Contents |
@@ -55,7 +113,8 @@ license (`qwen-community-1.0`) and are downloaded separately.
 | `exl3/pack.{hpp,cpp}` | Read-only view of an EXL3 checkpoint directory: mapped safetensors, tensor index, JSON configuration, cache identity |
 | `exl3/reference.{hpp,cpp}` | Scalar host reference of EXL3 linears and n-gram rows |
 | `exl3/rocm/exl3.{hpp,hip.cpp}` | EXL3 linears for gfx11 wave32: decode GEMV, expert GEMM, Q8_0 expansion, repacking |
-| `extension.cpp` | Registration and the unavailable placeholder provider |
+| `extension.cpp` | Registration of the three providers, unavailable until serving lands |
+| `models.lock.json` | Size and SHA-256 of every model file, from Gufo's EXL3 branch |
 | `tests/exl3_format_test.cpp` | Format contracts against Crucible's NumPy reference and ExLlamaV3's n-gram codec; no GPU |
 | `tests/exl3_pack_test.cpp` | Checkpoint reader on tiny synthetic safetensors directories: detection, config queries, identity inputs, malformed headers; no GPU |
 | `tests/exl3_ops_test.cpp` | Every kernel against the host reference for K2 to K6; GPU, labelled `slow` (about 35 s) |
@@ -127,7 +186,7 @@ exposes its layered library (RFC step 5: `gufo::qwen_flash_next` with
 | `ngram.{hpp,cpp}` trellis rows | Decodes n-gram rows of the on-disk table | An n-gram row source hook in Flash-Next's n-gram embedding |
 | `engine.{hpp,cpp}`, `runner.cpp` pack handling | Opens the pack instead of a GGUF, larger prompt chunk, cache identity, checkpoint MTP head | `WeightSource::Probe`, `Identity`, `Tokenizer`, `PreferredPrefillChunk`; nullable GGUF reader in the text loader |
 | `probe.{hpp,cpp}` `ProbeFlashNextExl3` | Accepts an EXL3 checkpoint directory | `WeightSource::Probe(path)` and model-directory probing in Gufo's loader |
-| `src/models/qwen38_flash_next_exl3_{2,3,4}bpw/` | One provider extension per checkpoint, with `models` entries and `models.lock.json` | `qwen_flash_next::Create(Options, Stages, WeightSource)`; providers then replace the placeholder here |
+| `src/models/qwen38_flash_next_exl3_{2,3,4}bpw/` provider code | One provider per checkpoint; the IDs, models and locks are already here | `qwen_flash_next::Create(Options, Stages, WeightSource)`; the registrations in `extension.cpp` then become real providers |
 | `tests/.../exl3_bind_probe.cpp`, `exl3_generate_probe.cpp` | Bind and end-to-end generation probes on real checkpoints | The bind and create paths above |
 | Tokenizer from `tokenizer.json` | Checkpoint tokenizer | `QwenTokenizer::CreateFromTokenizerJson` in the Qwen family layer |
 
