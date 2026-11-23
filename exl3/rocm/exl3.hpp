@@ -1,3 +1,7 @@
+// HIP launchers of the EXL3 trellis linears. Exl3FrontTile is adapted from
+// Crucible (engine/exl3/front_order.h, FrontTile), Copyright 2026 jaedync,
+// Apache-2.0. The format is ExLlamaV3's, Copyright (c) 2025 Turboderp, MIT.
+// See THIRD_PARTY_NOTICES.md.
 #ifndef QWEN38_FLASH_NEXT_EXL3_ROCM_EXL3_HPP_
 #define QWEN38_FLASH_NEXT_EXL3_ROCM_EXL3_HPP_
 
@@ -40,7 +44,8 @@ struct Exl3Weights {
 /// walks its row tiles, so blocks at the same step read neighbouring memory
 /// instead of one short run per column block at a matrix-column stride.
 /// Every column keeps its tile order, so results are unchanged. The order
-/// is Crucible's (engine/exl3/front_order.h).
+/// and this function are adapted from Crucible's FrontTile
+/// (engine/exl3/front_order.h).
 __host__ __device__ inline std::size_t Exl3FrontTile(
     std::size_t b, std::size_t a, std::size_t A, std::size_t B, std::size_t S) {
   const std::size_t span = A / S;

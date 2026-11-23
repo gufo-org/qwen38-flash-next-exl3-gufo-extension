@@ -34,6 +34,19 @@ struct PackTensor {
       n *= d;
     return n;
   }
+  /// Elements() times `element_bytes` into `*bytes`; false when the product
+  /// overflows 64 bits. Pack::Open accepts only tensors whose product fits,
+  /// so Elements() is exact for every tensor a Pack holds.
+  [[nodiscard]] bool CheckedBytes(std::uint64_t element_bytes,
+                                  std::uint64_t* bytes) const noexcept {
+    std::uint64_t n = element_bytes;
+    for (const auto d : shape) {
+      if (__builtin_mul_overflow(n, d, &n))
+        return false;
+    }
+    *bytes = n;
+    return true;
+  }
 };
 
 class Pack {
@@ -59,7 +72,10 @@ public:
     return tensors_.size();
   }
   /// sha256 over config.json and every safetensors header, in file order:
-  /// the checkpoint's identity for cache keys.
+  /// the checkpoint's identity for cache keys. Tensor payloads are not
+  /// hashed, so a checkpoint re-quantized to the same names, dtypes, shapes
+  /// and offsets keeps the same identity. Revisit when serving uses it as a
+  /// cache key.
   [[nodiscard]] const std::string& Identity() const noexcept {
     return identity_;
   }

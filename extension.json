@@ -42,6 +42,12 @@
       ],
       "role": "test"
     },
+    "qwen38_flash_next_exl3_pack_test": {
+      "requires": [
+        "testing"
+      ],
+      "role": "test"
+    },
     "qwen38_flash_next_exl3_ops_test": {
       "requires": [
         "hip",

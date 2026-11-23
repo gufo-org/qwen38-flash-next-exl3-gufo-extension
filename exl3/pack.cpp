@@ -144,8 +144,11 @@ bool Pack::AddFile(const std::filesystem::path& path, std::string* error) {
       t.shape.push_back(d.as_size());
     const std::uint64_t begin = offsets->items()[0].as_size();
     const std::uint64_t end = offsets->items()[1].as_size();
-    if (end < begin || data_start + end > mapped.size() ||
-        end - begin != t.Elements() * element_bytes) {
+    // data_start <= mapped.size() by the header check above, so neither
+    // bound wraps; CheckedBytes rejects shapes whose byte count overflows.
+    std::uint64_t bytes = 0;
+    if (end < begin || end > mapped.size() - data_start ||
+        !t.CheckedBytes(element_bytes, &bytes) || end - begin != bytes) {
       SetError(error, "safetensors entry out of range: " + name);
       return false;
     }

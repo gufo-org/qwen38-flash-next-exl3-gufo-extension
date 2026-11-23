@@ -71,6 +71,24 @@ if(TARGET qwen38_flash_next_exl3_format_test)
     LABELS "qwen38_flash_next_exl3;cpu")
 endif()
 
+# Checkpoint reader on tiny synthetic safetensors directories; no GPU.
+gufo_extension_target(
+  NAME qwen38_flash_next_exl3_pack_test
+  SOURCES
+    tests/exl3_pack_test.cpp
+  LINK_LIBRARIES
+    gufo_qwen38_flash_next_exl3
+    gufo_ext_runtime
+    ${_qwen38_flash_next_exl3_test_libs}
+)
+
+if(TARGET qwen38_flash_next_exl3_pack_test)
+  add_test(NAME qwen38_flash_next_exl3.pack
+    COMMAND qwen38_flash_next_exl3_pack_test)
+  set_tests_properties(qwen38_flash_next_exl3.pack PROPERTIES
+    LABELS "qwen38_flash_next_exl3;cpu")
+endif()
+
 # HIP linears against the host reference. The fused SwiGLU check compares
 # with Flash-Next's own Swiglu kernel, so this test links its export.
 gufo_extension_target(
@@ -90,7 +108,7 @@ if(TARGET qwen38_flash_next_exl3_ops_test)
   add_test(NAME qwen38_flash_next_exl3.ops
     COMMAND qwen38_flash_next_exl3_ops_test)
   set_tests_properties(qwen38_flash_next_exl3.ops PROPERTIES
-    LABELS "qwen38_flash_next_exl3;hip;gpu;gfx1151")
+    LABELS "qwen38_flash_next_exl3;hip;gpu;gfx1151;slow")
 endif()
 
 # Decode and prompt-pass linear timings on random weights; run by hand.

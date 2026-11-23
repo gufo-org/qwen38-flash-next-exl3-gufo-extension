@@ -6,11 +6,17 @@ Gufo's `qwen38_flash_next` extension instead of copying it.
 
 **Status: format and kernels only.** This repository holds the EXL3 trellis
 format, the checkpoint reader, the scalar host reference and the HIP linears,
-with their tests. It does not serve a model yet. Its one provider,
-`flash-next-exl3`, claims the EXL3 checkpoint keys and reports itself
-unavailable, because Gufo requires every extension to declare a provider.
-Serving waits for the Flash-Next Stages and WeightSource interface; see
+with their tests. It does not serve a model yet. Serving waits for the
+Flash-Next Stages and WeightSource interface; see
 [not ported yet](#not-ported-yet).
+
+Gufo requires every extension to declare a provider, so this one declares a
+placeholder, `flash-next-exl3`, which registers as unavailable. Its keys,
+`safetensors:qwen4_exp` and `safetensors:Qwen4ExpForConditionalGeneration`,
+match any Flash-Next safetensors checkpoint, BF16 included, not only EXL3
+ones. They are placeholders for the real providers. The unavailable reason
+shows only in `gufo diagnose --section extensions`; loading a checkpoint
+directory fails with "no text provider claims model directory".
 
 Maintainer: Federico Izzo ([fedeizzo](https://github.com/fedeizzo)).
 
@@ -38,8 +44,8 @@ Its n-gram table (39, 33 and 26 GB) never enters GPU memory: rows are read from
 disk per token. The checkpoints are revisions of
 [turboderp/Qwen3.8-Flash-Next-exl3](https://huggingface.co/turboderp/Qwen3.8-Flash-Next-exl3)
 (4.05 bpw at revision `55a732e0`); their weights keep the Qwen community
-license (`qwen-community-1.0`) and are downloaded separately. [EXL3 notes](docs/EXL3.md) has the format, kernels, quality and
-performance.
+license (`qwen-community-1.0`) and are downloaded separately.
+[EXL3 notes](docs/EXL3.md) has the format, kernels, quality and performance.
 
 ## Layout
 
@@ -51,14 +57,27 @@ performance.
 | `exl3/rocm/exl3.{hpp,hip.cpp}` | EXL3 linears for gfx11 wave32: decode GEMV, expert GEMM, Q8_0 expansion, repacking |
 | `extension.cpp` | Registration and the unavailable placeholder provider |
 | `tests/exl3_format_test.cpp` | Format contracts against Crucible's NumPy reference and ExLlamaV3's n-gram codec; no GPU |
-| `tests/exl3_ops_test.cpp` | Every kernel against the host reference for K2 to K6; GPU |
+| `tests/exl3_pack_test.cpp` | Checkpoint reader on tiny synthetic safetensors directories: detection, config queries, identity inputs, malformed headers; no GPU |
+| `tests/exl3_ops_test.cpp` | Every kernel against the host reference for K2 to K6; GPU, labelled `slow` (about 35 s) |
 | `tests/exl3_gemv_bench.cpp` | Decode and prompt-pass linear timings on random weights; run by hand |
 
 The code comes from Gufo's `feat/qwen38-flash-next-exl3` branch, commits
 `197ff374` (EXL3 checkpoints) and `bb5dff44` (faster decode and prompt
-passes), rebased on Gufo `main`. Only include paths and header guards changed;
-the C++ namespaces are still `gufo::models::qwen38_flash_next::{exl3,rocm}`.
-Git history was not carried over.
+passes), rebased on Gufo `main`. Git history was not carried over. The C++
+namespaces are still `gufo::models::qwen38_flash_next::{exl3,rocm}`. Changes
+from the branch, besides include paths and header guards:
+
+- `exl3/pack.{hpp,cpp}`: `Pack::Open` rejects tensor offsets and shapes whose
+  64-bit arithmetic wraps (`PackTensor::CheckedBytes`, and an end bound checked
+  against the bytes after the header).
+- `exl3/rocm/exl3.hpp`: attribution of the front tile order to Crucible's
+  `FrontTile`.
+- `tests/exl3_pack_test.cpp` is new.
+
+`Pack::Identity()` hashes only `config.json` and the safetensors headers, not
+tensor payloads: a checkpoint re-quantized to the same names, dtypes, shapes
+and offsets gets the same identity. Fix this before serving uses it as a cache
+key.
 
 `exl3_ops_test` compares the fused SwiGLU group with Flash-Next's own `Swiglu`
 kernel, so it includes `src/models/qwen38_flash_next/kernels/rocm/kernels.hpp`
@@ -71,7 +90,8 @@ header; the test is the only user.
 cmake --preset gpu-test -B build/exl3 \
   -DGUFO_EXTENSION_DIRS=/absolute/path/to/qwen38-flash-next-exl3-gufo-extension
 cmake --build build/exl3 --parallel 4 --target \
-  qwen38_flash_next_exl3_format_test qwen38_flash_next_exl3_ops_test \
+  qwen38_flash_next_exl3_format_test qwen38_flash_next_exl3_pack_test \
+  qwen38_flash_next_exl3_ops_test \
   qwen38_flash_next_exl3_gemv_bench
 ctest --test-dir build/exl3 -R '^qwen38_flash_next_exl3\.' --output-on-failure
 build/exl3/qwen38_flash_next_exl3_gemv_bench
@@ -79,7 +99,8 @@ build/exl3/qwen38_flash_next_exl3_gemv_bench
 
 Run these from a Gufo checkout at a supported revision, inside its `nix
 develop` shell or with the documented dependencies. `qwen38_flash_next_exl3.format`
-runs on the CPU; `qwen38_flash_next_exl3.ops` needs a `gfx1151` GPU.
+and `qwen38_flash_next_exl3.pack` run on the CPU; `qwen38_flash_next_exl3.ops`
+needs a `gfx1151` GPU.
 
 With Nix, [flake.nix](flake.nix) pins Gufo with this extension added:
 
@@ -109,6 +130,16 @@ exposes its layered library (RFC step 5: `gufo::qwen_flash_next` with
 | `src/models/qwen38_flash_next_exl3_{2,3,4}bpw/` | One provider extension per checkpoint, with `models` entries and `models.lock.json` | `qwen_flash_next::Create(Options, Stages, WeightSource)`; providers then replace the placeholder here |
 | `tests/.../exl3_bind_probe.cpp`, `exl3_generate_probe.cpp` | Bind and end-to-end generation probes on real checkpoints | The bind and create paths above |
 | Tokenizer from `tokenizer.json` | Checkpoint tokenizer | `QwenTokenizer::CreateFromTokenizerJson` in the Qwen family layer |
+
+## TODO
+
+- Raise `api_version` in [extension.json](extension.json) to the extension
+  API revision of gufo-org/gufo#1360's change record once #1360 merges.
+- Once #1360 merges, re-pin [flake.nix](flake.nix), `flake.lock` and the
+  supported revision above to its squash commit on Gufo `main`.
+- Move the code to an extension-owned namespace in a follow-up PR.
+- Hash the tensor payloads (or a checkpoint revision) into `Pack::Identity()`
+  before serving uses it as a cache key.
 
 ## License
 
