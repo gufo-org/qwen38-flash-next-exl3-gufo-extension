@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "name": "qwen38_flash_next_exl3",
+  "version": "0.1.0",
+  "api_version": ">= 0.3.0",
+  "entry": "qwen38_flash_next_exl3_register",
+  "registration_target": "gufo_qwen38_flash_next_exl3",
+  "depends": [
+    "qwen38_flash_next"
+  ],
+  "platforms": [
+    "linux"
+  ],
+  "providers": [
+    {
+      "id": "flash-next-exl3",
+      "capability": "text_generation",
+      "keys": [
+        "safetensors:qwen4_exp",
+        "safetensors:Qwen4ExpForConditionalGeneration"
+      ],
+      "model_ids": [
+        "flash-next-exl3"
+      ],
+      "target": "gufo_qwen38_flash_next_exl3",
+      "entry": "qwen38_flash_next_exl3_provider_register"
+    }
+  ],
+  "options": [],
+  "targets": {
+    "gufo_qwen38_flash_next_exl3": {
+      "requires": []
+    },
+    "gufo_qwen38_flash_next_exl3_hip": {
+      "requires": [
+        "hip"
+      ]
+    },
+    "qwen38_flash_next_exl3_format_test": {
+      "requires": [
+        "testing"
+      ],
+      "role": "test"
+    },
+    "qwen38_flash_next_exl3_ops_test": {
+      "requires": [
+        "hip",
+        "testing"
+      ],
+      "role": "test"
+    },
+    "qwen38_flash_next_exl3_gemv_bench": {
+      "requires": [
+        "hip",
+        "testing"
+      ],
+      "role": "test"
+    }
+  },
+  "licenses": [
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses/crucible.txt",
+    "licenses/exllamav3.txt"
+  ]
+}
