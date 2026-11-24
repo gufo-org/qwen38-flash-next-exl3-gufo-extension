@@ -101,7 +101,7 @@ if(TARGET qwen38_flash_next_exl3_pack_test)
 endif()
 
 # HIP linears against the host reference. The fused SwiGLU check compares
-# with Flash-Next's own Swiglu kernel, so this test links its export.
+# with an unfused reference kernel of the test's own.
 gufo_extension_target(
   NAME qwen38_flash_next_exl3_ops_test
   SOURCES
@@ -109,13 +109,23 @@ gufo_extension_target(
   LINK_LIBRARIES
     gufo_qwen38_flash_next_exl3_hip
     gufo_qwen38_flash_next_exl3
-    gufo::qwen38_flash_next_hip
     gufo_ext_runtime
     ${_qwen38_flash_next_exl3_test_libs}
     hip::host
 )
 
 if(TARGET qwen38_flash_next_exl3_ops_test)
+  # The reference SwiGLU kernel, with the linears' HIP options.
+  gufo_extension_hip_sources(qwen38_flash_next_exl3_ops_test
+    SOURCES
+      tests/exl3_swiglu.hip.cpp
+  )
+  target_compile_options(qwen38_flash_next_exl3_ops_test PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3>
+    $<$<COMPILE_LANGUAGE:HIP>:-ffast-math>
+    $<$<COMPILE_LANGUAGE:HIP>:-fno-finite-math-only>
+    $<$<COMPILE_LANGUAGE:HIP>:-Wno-unused-command-line-argument>
+  )
   add_test(NAME qwen38_flash_next_exl3.ops
     COMMAND qwen38_flash_next_exl3_ops_test)
   set_tests_properties(qwen38_flash_next_exl3.ops PROPERTIES
