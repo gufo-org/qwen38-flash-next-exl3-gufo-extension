@@ -19,8 +19,8 @@
 #include "exl3/rocm/exl3.hpp"
 #include "src/models/qwen38_flash_next/kernels/rocm/kernels.hpp"
 
-namespace q = gufo::models::qwen38_flash_next::rocm;
-namespace fmt = gufo::models::qwen38_flash_next::exl3;
+namespace q = gufo::ext::qwen38_flash_next_exl3::rocm;
+namespace fmt = gufo::ext::qwen38_flash_next_exl3;
 
 namespace {
 
@@ -550,7 +550,8 @@ void GroupCase(int dense_k, int expert_k) {
        y + kUsed * kHidden, kHidden, 1, gate + kUsed * kFf}};
   Expect(q::Exl3LinearGroup(second, 2, scratch.s, nullptr),
          name + " down launch");
-  q::Swiglu(gate, up, (kUsed + 1) * kFf, nullptr);
+  gufo::models::qwen38_flash_next::rocm::Swiglu(gate, up, (kUsed + 1) * kFf,
+                                                nullptr);
   Expect(
       q::Exl3Linear(routed_down.device, gate, kFf, 1, ids, ref, kHidden, kUsed,
                     scratch.s, nullptr) &&

@@ -16,7 +16,7 @@
 
 #include "exl3/rocm/exl3.hpp"
 
-namespace q = gufo::models::qwen38_flash_next::rocm;
+namespace q = gufo::ext::qwen38_flash_next_exl3::rocm;
 
 namespace {
 

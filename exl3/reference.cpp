@@ -4,7 +4,7 @@
 
 #include "exl3/format.hpp"
 
-namespace gufo::models::qwen38_flash_next::exl3 {
+namespace gufo::ext::qwen38_flash_next_exl3 {
 namespace {
 
 float RoundHalf(float v) {
@@ -145,4 +145,4 @@ void DecodeNgramRow(const std::uint16_t* row, int k, const std::uint16_t* bias,
   }
 }
 
-}  // namespace gufo::models::qwen38_flash_next::exl3
+}  // namespace gufo::ext::qwen38_flash_next_exl3

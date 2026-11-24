@@ -15,7 +15,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace gufo::models::qwen38_flash_next::exl3 {
+namespace gufo::ext::qwen38_flash_next_exl3 {
 
 enum class DType : std::uint8_t { kF16, kBF16, kF32, kI16, kI32, kI64 };
 
@@ -71,11 +71,12 @@ public:
   [[nodiscard]] std::size_t TensorCount() const noexcept {
     return tensors_.size();
   }
-  /// sha256 over config.json and every safetensors header, in file order:
-  /// the checkpoint's identity for cache keys. Tensor payloads are not
-  /// hashed, so a checkpoint re-quantized to the same names, dtypes, shapes
-  /// and offsets keeps the same identity. Revisit when serving uses it as a
-  /// cache key.
+  /// sha256 over config.json, every safetensors header and the first and
+  /// last 64 bytes of every tensor payload, in file and tensor order: the
+  /// checkpoint's identity for cache keys. Re-quantizing any tensor under
+  /// the same layout changes its ends, so the identity changes without the
+  /// payload being read in full; a change confined to a tensor's interior
+  /// bytes does not.
   [[nodiscard]] const std::string& Identity() const noexcept {
     return identity_;
   }
@@ -106,6 +107,6 @@ private:
 [[nodiscard]] std::uint32_t PackContextLength(
     const std::filesystem::path& directory);
 
-}  // namespace gufo::models::qwen38_flash_next::exl3
+}  // namespace gufo::ext::qwen38_flash_next_exl3
 
 #endif  // QWEN38_FLASH_NEXT_EXL3_PACK_HPP_
