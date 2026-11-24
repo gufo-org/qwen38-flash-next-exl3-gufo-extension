@@ -35,7 +35,7 @@ Maintainer: Federico Izzo ([fedeizzo](https://github.com/fedeizzo)).
 
 | Extension | Gufo | Notes |
 | --- | --- | --- |
-| 0.1.0 | `d3a7bab1563e7266c52c426a149db00841b6d4d6` | Needs Flash-Next `Stages`/`WeightSource` ([#1364](https://github.com/gufo-org/gufo/pull/1364), merged), `depends` linking and exports ([#1360](https://github.com/gufo-org/gufo/pull/1360), merged), `QwenTokenizer::CreateFromTokenizerJson` ([#1359](https://github.com/gufo-org/gufo/pull/1359), merged), `gufo::qwen_family` ([#1361](https://github.com/gufo-org/gufo/pull/1361), merged) and the public Flash-Next headers and hooks ([#1372](https://github.com/gufo-org/gufo/pull/1372), merged) |
+| 0.1.0 | `7c9fb4aefe6fa84bd582d481ac5819a0e3dfec9b` | Needs Flash-Next `Stages`/`WeightSource` ([#1364](https://github.com/gufo-org/gufo/pull/1364), merged), `depends` linking and exports ([#1360](https://github.com/gufo-org/gufo/pull/1360), merged), `QwenTokenizer::CreateFromTokenizerJson` ([#1359](https://github.com/gufo-org/gufo/pull/1359), merged), `gufo::qwen_family` ([#1361](https://github.com/gufo-org/gufo/pull/1361), merged) and the public Flash-Next headers and hooks ([#1372](https://github.com/gufo-org/gufo/pull/1372), merged) |
 
 The extension depends on `qwen38_flash_next` (`"depends"` in
 [extension.json](extension.json)). Links to that extension's export carry no
