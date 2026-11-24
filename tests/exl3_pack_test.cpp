@@ -134,9 +134,12 @@ void ValidPack() {
   Expect(pack->Find("missing") == nullptr, "unknown tensor");
   Expect(pack->Identity().size() == 64, "identity is a sha256 hex digest");
 
-  // The identity covers config.json, the headers and a payload sample whose
-  // last block ends each file.
+  // The identity covers config.json, the headers and both ends of every
+  // tensor payload.
   const std::string identity = pack->Identity();
+  const auto reopened = fmt::Pack::Open(dir.path(), &error);
+  Expect(reopened != nullptr && reopened->Identity() == identity,
+         "the same pack keeps its identity");
   WriteSafetensors(dir.path() / "b.safetensors",
                    "{" + Entry("lm_head", "BF16", "[2,2]", 0, 8) + "}", 8);
   {

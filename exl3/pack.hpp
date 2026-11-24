@@ -71,10 +71,12 @@ public:
   [[nodiscard]] std::size_t TensorCount() const noexcept {
     return tensors_.size();
   }
-  /// sha256 over config.json, every safetensors header and 64 evenly
-  /// spaced 4 KiB blocks of each file's payload, in file order: the
-  /// checkpoint's identity for cache keys. The sample tells re-quantized
-  /// checkpoints of one layout apart without reading the whole payload.
+  /// sha256 over config.json, every safetensors header and the first and
+  /// last 64 bytes of every tensor payload, in file and tensor order: the
+  /// checkpoint's identity for cache keys. Re-quantizing any tensor under
+  /// the same layout changes its ends, so the identity changes without the
+  /// payload being read in full; a change confined to a tensor's interior
+  /// bytes does not.
   [[nodiscard]] const std::string& Identity() const noexcept {
     return identity_;
   }

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 #include <fstream>
+#include <gufo/ext/platform/fs.hpp>
 #include <gufo/ext/sha256.hpp>
 #include <sstream>
 #include <system_error>
@@ -42,9 +43,8 @@ bool ParseDType(const std::string& name, DType* out, std::size_t* bytes) {
   return false;
 }
 
-/// Payload sample of each file hashed into Pack::Identity().
-constexpr std::uint64_t kSampleBlocks = 64;
-constexpr std::uint64_t kSampleBytes = 4096;
+/// Bytes hashed into Pack::Identity() at each end of every tensor payload.
+constexpr std::uint64_t kSampleBytes = 64;
 
 }  // namespace
 
@@ -87,20 +87,28 @@ std::unique_ptr<Pack> Pack::Open(const std::filesystem::path& directory,
     std::uint64_t header = 0;
     std::memcpy(&header, mapped.data(), sizeof(header));
     identity.Update({mapped.data(), static_cast<std::size_t>(8 + header)});
-    // A sample of the payload, so a checkpoint re-quantized to the same
-    // names, dtypes, shapes and offsets gets another identity without
-    // reading every byte: evenly spaced blocks, the last ending the file.
-    const std::uint64_t begin = 8 + header;
-    const std::uint64_t size = mapped.size();
-    if (size > begin) {
-      const std::uint64_t span = size - begin;
-      const std::uint64_t block = std::min<std::uint64_t>(kSampleBytes, span);
-      for (std::uint64_t i = 0; i < kSampleBlocks; ++i) {
-        const std::uint64_t at =
-            begin + (span - block) * i / (kSampleBlocks - 1);
-        identity.Update({mapped.data() + at, static_cast<std::size_t>(block)});
-      }
+  }
+  // Both ends of every tensor payload, read rather than mapped so the
+  // sample does not fault in readahead windows: a tensor re-quantized
+  // under the same name, dtype, shape and offset changes the identity
+  // without the payload being read in full.
+  std::vector<std::uint8_t> sample(2 * kSampleBytes);
+  for (const PackTensor& t : pack->tensors_) {
+    const std::uint64_t n = std::min<std::uint64_t>(kSampleBytes, t.size_bytes);
+    if (n == 0)
+      continue;
+    const auto file = pack->regions_[t.file].file_descriptor;
+    std::error_code read_error;
+    const std::size_t head =
+        platform::ReadAt(file, t.file_offset, sample.data(), n, read_error);
+    const std::size_t tail =
+        platform::ReadAt(file, t.file_offset + t.size_bytes - n,
+                         sample.data() + n, n, read_error);
+    if (head != n || tail != n) {
+      SetError(error, "cannot read EXL3 tensor " + t.name);
+      return nullptr;
     }
+    identity.Update({sample.data(), static_cast<std::size_t>(2 * n)});
   }
   pack->identity_ = identity.FinishHex();
   pack->index_.reserve(pack->tensors_.size());
