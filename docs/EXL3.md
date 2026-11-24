@@ -116,9 +116,10 @@ for K6):
   sign folds into the next scale. A zero then comes out as -0 where
   `Wht128` gives +0, and the matrix cores' sums depend on the sign of zero
   inputs (prefill-check KL after 1,000 tokens moved from 0.0074 to 0.022),
-  so values that feed a WMMA are converted with a +0 addend
-  (`HalfPairScaled`), and the results are bit-identical to `Wht128`'s.
-  Decode keeps `Wht128`.
+  so values that feed a WMMA or decode dot product are converted with a +0
+  addend (`HalfPairScaled`), and the results are bit-identical to `Wht128`'s.
+  Decode (`GemvBody`) also uses `Wht128Signed` with `HalfPairScaled` for
+  input staging and vectorized `float4`/`uint2` loads and stores.
 - MoE prompt passes queue the shared expert on the side stream after the
   routed gate and up, so it runs beside down: the 640-column gate and up
   blocks each take a whole WGP and share it poorly.
@@ -224,7 +225,13 @@ full-tile specialisation of the main loop and an unrolled epilogue (code
 size); B fragments loaded one tile ahead (+8 VGPRs, slower, as before);
 fused tiles of 64 rows, also forced to two blocks per WGP (decode per WMMA
 doubles; spills); down tiles of 192 rows (spills) or four column blocks
-of 64 rows; F16 gate outputs (0.6% faster, changes prefill numerics); gate
+of 64 rows; 64-row (`RT=4`) down tiles for `n_tokens <= 4096` (flat at
+`d0_pp2k`, `d16K_pp2k` and `d32K_pp2k` because hot experts with >64 rows
+double weight decodes); removing the `if (j < live)` guard in the WMMA
+loop (regressed both `rows 80` and `rows 128` due to higher VGPR pressure
+and extra WMMAs on partial tiles); inline `v_permlanex16_b32` asm in
+`Exl3GemmKernel` (scheduling barrier regressed `gate K4`); F16 gate
+outputs (0.6% faster, changes prefill numerics); gate
 and up in one launch, each block running gate then up over the same rows
 (the phase loop takes 20 more VGPRs and loses more than the cached reads
 save); full row tiles dispatched before partial ones (partial tiles lose
@@ -232,6 +239,19 @@ their expert's cached weights); expanding layer il + 1 on a low-priority
 stream while layer il runs (expansions overlapped fully but stretched 10x;
 no prefill gain); running the shared expert serially, or its side stream at the least or
 greatest priority (no change); 4,096-row passes.
+
+November 24 changes (outputs bit-identical; 9/9 `qwen38_flash_next_exl3.*`
+tests pass across 2/3/4 bpw): `Wht128Signed` + `HalfPairScaled` +
+vectorized `float4`/`uint2` staging and output transforms in `GemvBody`
+(+2–9% across all 15 `exl3_gemv_bench` decode cases, +0.5–1.0% end-to-end
+AR decode across all three variants: 4bpw 36.11 -> 36.38, 3bpw 40.10 ->
+40.43, 2bpw 44.67 -> 44.89 tok/s); and `__builtin_amdgcn_permlanex16(0U,
+own[i], ...)` in `Exl3GemmKernel` to drop redundant `v_dual_mov_b32` copies
+(+6.8% on `down K4` microbench, +1.2–2.7% on 4bpw prefill across depths:
+`d0_pp8k` 1859 -> 1909, `d16K_pp2k` 1649 -> 1674, `d32K_pp2k` 1638 ->
+1658 tok/s). Tried and rejected for decode: dense-only uniform-K
+`Exl3GemvDenseGroupKernel` (dropped VGPRs from 202 to 102–116, but 32 KiB
+LDS still caps occupancy at 1 block/CU; no end-to-end gain).
 
 ## Limits
 

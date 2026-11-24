@@ -371,6 +371,7 @@ __device__ __forceinline__ void GemvBody(
     {
       auto* xsh = reinterpret_cast<__half*>(xs);
       const int blocks = chunk / 8;
+      const float norm_sign = fmt::kHadamardNorm * SignOfLane();
       for (int task = wave; task < R * blocks; task += kWaves) {
         const int r = task / blocks;
         const int blk = task - r * blocks;
@@ -380,30 +381,35 @@ __device__ __forceinline__ void GemvBody(
           const std::uint32_t row = row0 + r;
           const std::size_t at =
               static_cast<std::size_t>(row / a.x_div) * a.ldx + c;
-          const float* src = a.x + at;
+          const float4 f = *reinterpret_cast<const float4*>(a.x + at);
+          float in[4] = {f.x, f.y, f.z, f.w};
           const __half* suh =
               a.w.suh + static_cast<std::size_t>(ExpertOf(a, row)) * a.w.in + c;
-          float in[4];
-#pragma unroll
-          for (int i = 0; i < 4; ++i)
-            in[i] = src[i];
+          const uint2 sh = *reinterpret_cast<const uint2*>(suh);
           if (a.gate != nullptr) {
             // SwigluKernel's product, formed while staging.
+            const float4 gf = *reinterpret_cast<const float4*>(a.gate + at);
+            const float g[4] = {gf.x, gf.y, gf.z, gf.w};
 #pragma unroll
-            for (int i = 0; i < 4; ++i) {
-              const float g = a.gate[at + i];
-              in[i] = g * (1.0F / (1.0F + __expf(-g))) * in[i];
-            }
+            for (int i = 0; i < 4; ++i)
+              in[i] = g[i] * (1.0F / (1.0F + __expf(-g[i]))) * in[i];
           }
-#pragma unroll
-          for (int i = 0; i < 4; ++i)
-            v[i] = RoundH(RoundH(in[i]) * __half2float(suh[i]));
+          const __half2 s01 = *reinterpret_cast<const __half2*>(&sh.x);
+          const __half2 s23 = *reinterpret_cast<const __half2*>(&sh.y);
+          const float2 lo =
+              __half22float2(__hmul2(__floats2half2_rn(in[0], in[1]), s01));
+          const float2 hi =
+              __half22float2(__hmul2(__floats2half2_rn(in[2], in[3]), s23));
+          v[0] = lo.x;
+          v[1] = lo.y;
+          v[2] = hi.x;
+          v[3] = hi.y;
         }
-        Wht128(v);
+        Wht128Signed(v);
         __half* dst = xsh + r * chunk * 16 + blk * 128 + lane * 4;
-#pragma unroll
-        for (int i = 0; i < 4; ++i)
-          dst[i] = __float2half(v[i] * fmt::kHadamardNorm);
+        *reinterpret_cast<uint2*>(dst) =
+            uint2{HalfPairScaled(v[0], v[1], norm_sign),
+                  HalfPairScaled(v[2], v[3], norm_sign)};
       }
     }
     __syncthreads();
@@ -486,6 +492,7 @@ __device__ __forceinline__ void GemvBody(
   }
   // Output transform: one wave per row: H, scale, svh.
   const __half* svh_base = a.w.svh + group * 128 + lane * 4;
+  const float out_norm_sign = fmt::kHadamardNorm * SignOfLane();
   for (int r = wave; r < nrows; r += kWaves) {
     const std::uint32_t row = row0 + r;
     float v[4];
@@ -507,14 +514,17 @@ __device__ __forceinline__ void GemvBody(
           v[i] += __builtin_nontemporal_load(p + i);
       }
     }
-    Wht128(v);
+    Wht128Signed(v);
     const __half* svh =
         svh_base + static_cast<std::size_t>(ExpertOf(a, row)) * a.w.out;
+    const uint2 sh = *reinterpret_cast<const uint2*>(svh);
+    const float2 s01 = __half22float2(*reinterpret_cast<const __half2*>(&sh.x));
+    const float2 s23 = __half22float2(*reinterpret_cast<const __half2*>(&sh.y));
     float* dst =
         a.y + static_cast<std::size_t>(row) * a.ldy + group * 128 + lane * 4;
-#pragma unroll
-    for (int i = 0; i < 4; ++i)
-      dst[i] = v[i] * (fmt::kHadamardNorm * __half2float(svh[i]));
+    *reinterpret_cast<float4*>(dst) =
+        float4{v[0] * (out_norm_sign * s01.x), v[1] * (out_norm_sign * s01.y),
+               v[2] * (out_norm_sign * s23.x), v[3] * (out_norm_sign * s23.y)};
   }
 }
 
@@ -966,8 +976,8 @@ __global__ void __launch_bounds__(W * 32) Exl3GemmKernel(GemmArgs g) {
 #pragma unroll
         for (int i = 0; i < 4; ++i) {
           frag[i] = own[i];
-          frag[4 + i] = __builtin_amdgcn_permlanex16(
-              own[i], own[i], 0x76543210U, 0xFEDCBA98U, false, false);
+          frag[4 + i] = __builtin_amdgcn_permlanex16(0U, own[i], 0x76543210U,
+                                                     0xFEDCBA98U, false, false);
         }
         __builtin_memcpy(&af[u], frag, 32);
       }
