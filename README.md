@@ -129,7 +129,7 @@ store's links, and the original files stay.
 | `models.lock.json` | Size and SHA-256 of every model file, from Gufo's EXL3 branch |
 | `tests/exl3_format_test.cpp` | Format contracts against Crucible's NumPy reference and ExLlamaV3's n-gram codec; no GPU |
 | `tests/exl3_pack_test.cpp` | Checkpoint reader on tiny synthetic safetensors directories: detection, config queries, identity inputs, malformed headers; no GPU |
-| `tests/exl3_ops_test.cpp` | Every kernel against the host reference for K2 to K6; GPU, labelled `slow` (about 35 s) |
+| `tests/exl3_ops_test.cpp`, `tests/exl3_swiglu.{hpp,hip.cpp}` | Every kernel against the host reference for K2 to K6, and the fused SwiGLU group against an unfused reference kernel; GPU, labelled `slow` (about 35 s) |
 | `tests/exl3_gemv_bench.cpp` | Decode and prompt-pass linear timings on random weights; run by hand |
 | `tests/exl3_bind_test.cpp` | Binds a real checkpoint of each bits class and checks the descriptors; no GPU, skips without `QWEN38_FLASH_NEXT_EXL3_MODEL` |
 | `tests/exl3_generate_test.cpp` | Per bits class, through `Model::Load` with these stages and source: greedy AR answer, prompt against decode path, one MTP session and two batched MTP sessions (verification wider than the grouped route) against AR; GPU, skips without `QWEN38_FLASH_NEXT_EXL3_MODEL` |
@@ -156,10 +156,10 @@ namespace). Changes from the branch, besides include paths and header guards:
 - `tests/exl3_pack_test.cpp` is new; the bind and generate probes became the
   model-gated `bind` and `generate` tests.
 
-`exl3_ops_test` compares the fused SwiGLU group with Flash-Next's own `Swiglu`
-kernel, so it includes `src/models/qwen38_flash_next/kernels/rocm/kernels.hpp`
-through the `gufo::qwen38_flash_next_hip` export. That is a private Gufo
-header; the test is the only user.
+`exl3_ops_test` compares the fused SwiGLU group with an unfused reference
+SwiGLU kernel of its own (`tests/exl3_swiglu.hip.cpp`), which writes Flash-Next's
+`SwigluKernel` expression with the same HIP options, so the comparison stays
+exact.
 
 ## Build and test
 
@@ -199,9 +199,9 @@ The extension uses Flash-Next's experimental headers under
 `<gufo/ext/families/qwen/models/flash_next/>` (no compatibility promise):
 `Stages`, `WeightSource` (with `NativeContextLength`, `MtpPath` and
 `UploadDone`), `Config::Validated`, `NgramTable::OpenEncoded` and the
-non-GGUF `CreateQwenFlashNextTextRunner`. The `gufo::qwen38_flash_next`
-exports still put private Gufo headers on the include path, and
-`tests/exl3_ops_test.cpp` uses one (`kernels/rocm/kernels.hpp`).
+non-GGUF `CreateQwenFlashNextTextRunner`. No source includes a private Gufo
+header, although the `gufo::qwen38_flash_next` exports still put them on the
+include path.
 
 ## License
 
