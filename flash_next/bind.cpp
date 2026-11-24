@@ -13,8 +13,6 @@
 #include "flash_next/bind.hpp"
 
 #include <algorithm>
-#include <array>
-#include <climits>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -444,60 +442,6 @@ std::string NgramPrefix(std::int32_t layer) {
          ".ple.ple_embedding.ngram_embedding.";
 }
 
-/// The runtime's structural limits and kernel geometry, as Flash-Next's
-/// GGUF binding checks them (src/models/qwen38_flash_next/config.cpp).
-std::optional<Config> Validated(Config c, bool require_trunk,
-                                std::string* error_msg) {
-  const auto fail = [&](const char* message) -> std::optional<Config> {
-    if (error_msg != nullptr)
-      *error_msg = message;
-    return std::nullopt;
-  };
-  // Structural limits of this runtime, not of the format.
-  if (c.context_length == 0 || c.context_length > INT32_MAX ||
-      !std::isfinite(c.rms_eps) || c.rms_eps <= 0 ||
-      !std::isfinite(c.rope_theta) || c.rope_theta <= 0 || c.hidden_size == 0 ||
-      c.hc_count < 2 || c.hc_low_rank == 0 || c.full_attention_interval == 0 ||
-      c.num_heads == 0 || c.num_kv_heads == 0 ||
-      c.num_heads % c.num_kv_heads != 0 || c.head_dim == 0 ||
-      c.rotary_dim == 0 || c.rotary_dim % 2 != 0 || c.rotary_dim > c.head_dim ||
-      c.indexer_heads == 0 || c.indexer_head_dim == 0 ||
-      c.rotary_dim > c.indexer_head_dim || c.compress_ratio == 0 ||
-      c.indexer_top_k == 0 || c.indexer_top_k % c.compress_ratio != 0 ||
-      c.ssm_conv_kernel == 0 || c.ssm_head_dim == 0 || c.ssm_num_k_heads == 0 ||
-      c.ssm_num_v_heads == 0 || c.ssm_num_v_heads % c.ssm_num_k_heads != 0 ||
-      c.ssm_inner_size != c.SsmValueDim() || c.num_experts == 0 ||
-      c.num_experts_used == 0 || c.num_experts_used > c.num_experts ||
-      c.expert_ff == 0 || c.shared_expert_ff == 0)
-    return fail("qwen4exp metadata describes an unsupported shape");
-  // These dimensions select specialized attention, indexer, DeltaNet and
-  // expert kernels. Reject other profiles before allocating or launching.
-  if (c.num_layers != 48 || c.nextn_layers > 1 || c.hidden_size != 2560 ||
-      c.hc_count != 4 || c.hc_low_rank != 320 ||
-      c.full_attention_interval != 4 || c.num_heads != 24 ||
-      c.num_kv_heads != 2 || c.head_dim != 256 || c.rotary_dim != 64 ||
-      c.rope_sections != std::array<std::uint32_t, 4>{11, 11, 10, 0} ||
-      c.indexer_heads != 4 || c.indexer_head_dim != 128 ||
-      c.indexer_top_k != 2048 || c.compress_ratio != 4 ||
-      c.ssm_conv_kernel != 4 || c.ssm_head_dim != 128 ||
-      c.ssm_num_k_heads != 16 || c.ssm_num_v_heads != 48 ||
-      c.num_experts != 512 || c.num_experts_used != 10 || c.expert_ff != 640 ||
-      c.shared_expert_ff != 640 ||
-      (c.ple_layer >= 0 &&
-       (c.ple_ngram_size != 3 || c.ple_heads_per_ngram != 8 ||
-        c.ple_head_dim != 160 || c.ple_conv_kernel != 4)))
-    return fail("unsupported Qwen3.8-Flash-Next kernel geometry");
-  if (require_trunk) {
-    if (c.num_layers == 0 || c.num_layers % c.full_attention_interval != 0)
-      return fail(
-          "qwen4exp trunk layer count is not a multiple of the interval");
-    if (c.ple_layer >= 0 &&
-        !c.IsLinearLayer(static_cast<std::uint32_t>(c.ple_layer)))
-      return fail("PLE layer must be a linear attention layer");
-  }
-  return c;
-}
-
 }  // namespace
 
 std::optional<Config> ConfigFromPack(const Pack& pack, bool mtp,
@@ -600,7 +544,7 @@ std::optional<Config> ConfigFromPack(const Pack& pack, bool mtp,
       c.ple_rows = std::max(c.ple_rows, (*offsets)[h] + (*vocab)[h]);
     }
   }
-  return Validated(c, !mtp, error_msg);
+  return Config::Validated(c, !mtp, error_msg);
 }
 
 std::optional<ModelWeights> BindTrunk(const Pack& pack, HostTensors& host,

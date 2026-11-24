@@ -9,14 +9,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <gufo/ext/families/qwen/models/flash_next/config.hpp>
+#include <gufo/ext/families/qwen/models/flash_next/weights.hpp>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "exl3/pack.hpp"
-#include "src/models/qwen38_flash_next/config.hpp"
-#include "src/models/qwen38_flash_next/weights.hpp"
 
 namespace gufo::ext::qwen38_flash_next_exl3 {
 

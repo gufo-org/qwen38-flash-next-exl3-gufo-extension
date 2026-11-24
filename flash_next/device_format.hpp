@@ -6,9 +6,9 @@
 #include <hip/hip_fp16.h>
 
 #include <cstdint>
+#include <gufo/ext/families/qwen/models/flash_next/primitives.hpp>
 
 #include "exl3/rocm/exl3.hpp"
-#include "src/models/qwen38_flash_next/primitives.hpp"
 
 namespace gufo::ext::qwen38_flash_next_exl3 {
 

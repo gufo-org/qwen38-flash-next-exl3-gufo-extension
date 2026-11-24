@@ -4,14 +4,18 @@
 // drafts from the checkpoint's own MTP block.
 #include <exception>
 #include <filesystem>
+#include <gufo/ext/families/qwen/models/flash_next/runner.hpp>
 #include <gufo/ext/generated/qwen38_flash_next_exl3_constants.hpp>
 #include <gufo/ext/registry.hpp>
 #include <gufo/ext/text.hpp>
+#include <memory>
+#include <string>
 #include <string_view>
 #include <utility>
 
 #include "exl3/pack.hpp"
-#include "flash_next/runner.hpp"
+#include "flash_next/stages.hpp"
+#include "flash_next/weight_source.hpp"
 
 namespace {
 
@@ -32,6 +36,14 @@ bool ProbeBits(std::string_view model_root, double min_bits, double max_bits) {
   }
 }
 
+/// Flash-Next's runner over the checkpoint directory: native context, MTP
+/// draft block and cache identities come from the EXL3 weight source.
+std::shared_ptr<gufo::ext::TextModelRunner> Create(
+    const gufo::ext::TextRunnerOptions& options, std::string* error) {
+  return gufo::models::qwen38_flash_next::CreateQwenFlashNextTextRunner(
+      options, exl3::CreateExl3Stages(), exl3::CreateExl3WeightSource(), error);
+}
+
 bool Probe4(std::string_view root) {
   return ProbeBits(root, 3.5, 4.5);
 }
@@ -47,7 +59,7 @@ void Register(gufo::ext::Registry& registry, gufo::ext::ProviderInfo provider,
   gufo::ext::TextProvider text;
   text.id = provider.id;
   text.probe = probe;
-  text.create = &exl3::CreateExl3TextRunner;
+  text.create = &Create;
   gufo::ext::TextSpeculativeDefaults mtp;
   mtp.backend = "mtp";
   mtp.max_draft_tokens = 7;

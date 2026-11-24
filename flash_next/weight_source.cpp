@@ -7,7 +7,10 @@
 #include <cstring>
 #include <deque>
 #include <filesystem>
+#include <gufo/ext/families/qwen/models/flash_next/ngram.hpp>
+#include <gufo/ext/families/qwen/text/tokenizer.hpp>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -17,8 +20,6 @@
 #include "exl3/rocm/exl3.hpp"
 #include "flash_next/bind.hpp"
 #include "flash_next/device_format.hpp"
-#include "src/families/qwen/text/tokenizer.hpp"
-#include "src/models/qwen38_flash_next/ngram.hpp"
 
 namespace gufo::ext::qwen38_flash_next_exl3 {
 namespace {
@@ -31,21 +32,45 @@ constexpr std::size_t kTailMargin = 4096;
 
 class Exl3WeightSource final : public fn::WeightSource {
 public:
-  ~Exl3WeightSource() override {
-    ReleaseStaging();
-    if (head_q8_ != nullptr)
-      (void)hipFree(head_q8_);
-  }
+  ~Exl3WeightSource() override { ReleaseStaging(); }
 
   [[nodiscard]] bool Probe(const std::string& model_path) const override {
     return IsFlashNextPack(model_path);
   }
 
+  [[nodiscard]] std::uint32_t NativeContextLength(
+      const std::string& model_path) const override {
+    return PackContextLength(model_path);
+  }
+
+  /// The checkpoint carries its own MTP block. A requested draft model that
+  /// names another path is passed on, so Open reports it.
+  [[nodiscard]] std::string MtpPath(
+      const std::string& model_path,
+      const std::string& requested) const override {
+    std::error_code ec;
+    return requested.empty() ||
+                   std::filesystem::equivalent(requested, model_path, ec)
+               ? model_path
+               : requested;
+  }
+
   bool Open(const std::string& model_path, const std::string& mtp_path,
             std::string* error) override {
+    // The checkpoint carries its own MTP block: a draft path may only name
+    // the checkpoint itself.
+    std::error_code ec;
+    if (!mtp_path.empty() &&
+        !std::filesystem::equivalent(mtp_path, model_path, ec)) {
+      if (error != nullptr)
+        *error =
+            "an EXL3 checkpoint drafts from its own MTP block; omit "
+            "--mtp-model or pass the checkpoint directory (" +
+            model_path + "), not " + mtp_path;
+      return false;
+    }
+    drafts_ = !mtp_path.empty();
     pack_ = Pack::Open(model_path, error);
-    // The checkpoint carries its own MTP block: any draft path names it.
-    (void)mtp_path;
     return pack_ != nullptr;
   }
 
@@ -118,6 +143,12 @@ public:
     return pack_->Regions();
   }
 
+  void UploadDone(bool measuring) override {
+    // The repack staging serves one uploading walk.
+    if (!measuring)
+      ReleaseStaging();
+  }
+
   fn::Tensor Upload(const TensorRef& t, const fn::UploadHint& hint,
                     fn::UploadContext& up) override;
 
@@ -152,12 +183,11 @@ private:
   NgramRef ngram_;
   std::deque<DeviceFormat> formats_;
   /// Device staging the stored payloads land in before the repack, outside
-  /// the weight heap; freed after the last tensor of the uploading walk.
+  /// the weight heap; freed by UploadDone, or with the source.
   void* staging_{nullptr};
   std::size_t staging_bytes_{0};
-  std::size_t measured_tensors_{0};
-  std::size_t uploaded_tensors_{0};
-  void* head_q8_{nullptr};
+  bool drafts_{false};       ///< Opened with the MTP block.
+  fn::Tensor draft_head_{};  ///< Q8_0 head in the weight heap (DraftHead).
 };
 
 fn::Tensor Exl3WeightSource::Upload(const TensorRef& t,
@@ -176,16 +206,20 @@ fn::Tensor Exl3WeightSource::Upload(const TensorRef& t,
   void* tiles = nullptr;
   void* suh = nullptr;
   void* svh = nullptr;
+  // With MTP, the head's Q8_0 expansion (DraftHead) lives in the weight
+  // heap beside it, so the model's resident bytes count it.
+  const bool draft_head = drafts_ && t.name == "lm_head" && n == 1;
+  const std::size_t q8_bytes = out * (in / 32) * 34;
+  void* q8 = nullptr;
   if (!up.Allocate(&tiles, tile_bytes + kTailMargin) ||
       !up.Allocate(&suh, n * in * 2 + kTailMargin) ||
-      !up.Allocate(&svh, n * out * 2 + kTailMargin)) {
+      !up.Allocate(&svh, n * out * 2 + kTailMargin) ||
+      (draft_head && !up.Allocate(&q8, q8_bytes + kTailMargin))) {
     up.Fail("device allocation failed for " + std::string(t.name));
     return {};
   }
-  if (up.Measuring()) {
-    ++measured_tensors_;
+  if (up.Measuring())
     return {};
-  }
   const auto fail = [&](std::string message) -> fn::Tensor {
     ReleaseStaging();
     up.Fail(message);
@@ -265,42 +299,40 @@ fn::Tensor Exl3WeightSource::Upload(const TensorRef& t,
   // The staging buffer is reused by the next linear.
   if (hipDeviceSynchronize() != hipSuccess)
     return fail("EXL3 repack failed for " + std::string(t.name));
-  if (++uploaded_tensors_ == measured_tensors_)
-    ReleaseStaging();
   const DeviceFormat& format = formats_.emplace_back(
       DeviceFormat{static_cast<const __half*>(suh),
                    static_cast<const __half*>(svh), ref.k, front});
-  return fn::Tensor(tiles, core::GgmlType::kI32, static_cast<std::uint32_t>(in),
-                    static_cast<std::uint32_t>(out),
-                    static_cast<std::uint32_t>(n), &format);
+  const fn::Tensor tensor(
+      tiles, core::GgmlType::kI32, static_cast<std::uint32_t>(in),
+      static_cast<std::uint32_t>(out), static_cast<std::uint32_t>(n), &format);
+  if (draft_head) {
+    // Draft tables copy head rows, which the trellis format cannot address:
+    // the head drafts from the Q8_0 matrix it equals.
+    if (hipMemset(static_cast<std::uint8_t*>(q8) + q8_bytes, 0, kTailMargin) !=
+            hipSuccess ||
+        !rocm::Exl3DequantizeQ8(WeightsOf(tensor), 0, q8, nullptr) ||
+        hipDeviceSynchronize() != hipSuccess) {
+      up.Fail("Q8_0 draft head expansion failed");
+      return {};
+    }
+    draft_head_ =
+        fn::Tensor(q8, core::GgmlType::kQ8_0, tensor.cols(), tensor.rows());
+  }
+  return tensor;
 }
 
 bool Exl3WeightSource::DraftHead(const fn::Tensor& output, fn::Tensor* head,
                                  std::string* error) {
-  // Draft tables copy head rows, which the trellis format cannot address:
-  // the head drafts from its Q8_0 expansion.
   *head = {};
   if (!IsExl3(output))
     return true;
-  const rocm::Exl3Weights w = WeightsOf(output);
-  const std::size_t bytes = rocm::Exl3Q8Bytes(w);
-  if (head_q8_ == nullptr &&
-      hipMalloc(&head_q8_, bytes + kTailMargin) != hipSuccess) {
-    head_q8_ = nullptr;
+  if (draft_head_.empty() || draft_head_.rows() != output.rows() ||
+      draft_head_.cols() != output.cols()) {
     if (error != nullptr)
-      *error = "device allocation failed for the Q8_0 draft head";
+      *error = "the EXL3 head was uploaded without its Q8_0 draft copy";
     return false;
   }
-  if (hipMemset(static_cast<std::uint8_t*>(head_q8_) + bytes, 0, kTailMargin) !=
-          hipSuccess ||
-      !rocm::Exl3DequantizeQ8(w, 0, head_q8_, nullptr) ||
-      hipDeviceSynchronize() != hipSuccess) {
-    if (error != nullptr)
-      *error = "Q8_0 draft head expansion failed";
-    return false;
-  }
-  *head =
-      fn::Tensor(head_q8_, core::GgmlType::kQ8_0, output.cols(), output.rows());
+  *head = draft_head_;
   return true;
 }
 

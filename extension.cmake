@@ -26,12 +26,11 @@ if(TARGET gufo_qwen38_flash_next_exl3)
 endif()
 
 # EXL3 linears for gfx11 wave32, built with Flash-Next's HIP options, and
-# the providers: the stages, the weight source and the text runner.
+# the providers: the stages and the weight source Flash-Next's runner takes.
 gufo_extension_target(
   NAME gufo_qwen38_flash_next_exl3_hip
   SOURCES
     flash_next/provider.cpp
-    flash_next/runner.cpp
     flash_next/stages.cpp
     flash_next/weight_source.cpp
   LINK_LIBRARIES
@@ -123,9 +122,10 @@ if(TARGET qwen38_flash_next_exl3_ops_test)
     LABELS "qwen38_flash_next_exl3;hip;gpu;gfx1151;slow")
 endif()
 
-# A real checkpoint (QWEN38_FLASH_NEXT_EXL3_MODEL names its directory): the
-# binding on the host, then greedy generation through Flash-Next. Both skip
-# without one.
+# Real checkpoints (QWEN38_FLASH_NEXT_EXL3_MODEL lists their directories,
+# ':'-separated), one case per bits class: the binding on the host, then
+# greedy AR and MTP generation through Flash-Next. Each skips without its
+# checkpoint.
 gufo_extension_target(
   NAME qwen38_flash_next_exl3_bind_test
   SOURCES
@@ -138,11 +138,13 @@ gufo_extension_target(
 )
 
 if(TARGET qwen38_flash_next_exl3_bind_test)
-  add_test(NAME qwen38_flash_next_exl3.bind
-    COMMAND qwen38_flash_next_exl3_bind_test)
-  set_tests_properties(qwen38_flash_next_exl3.bind PROPERTIES
-    LABELS "qwen38_flash_next_exl3;cpu;model"
-    SKIP_RETURN_CODE 77)
+  foreach(bits 4 3 2)
+    add_test(NAME qwen38_flash_next_exl3.bind_${bits}bpw
+      COMMAND qwen38_flash_next_exl3_bind_test ${bits})
+    set_tests_properties(qwen38_flash_next_exl3.bind_${bits}bpw PROPERTIES
+      LABELS "qwen38_flash_next_exl3;cpu;model"
+      SKIP_RETURN_CODE 77)
+  endforeach()
 endif()
 
 gufo_extension_target(
@@ -161,11 +163,13 @@ gufo_extension_target(
 if(TARGET qwen38_flash_next_exl3_generate_test)
   target_compile_definitions(qwen38_flash_next_exl3_generate_test PRIVATE
     ENGINE_ENABLE_HIP=1)
-  add_test(NAME qwen38_flash_next_exl3.generate
-    COMMAND qwen38_flash_next_exl3_generate_test)
-  set_tests_properties(qwen38_flash_next_exl3.generate PROPERTIES
-    LABELS "qwen38_flash_next_exl3;hip;gpu;gfx1151;model;slow"
-    SKIP_RETURN_CODE 77)
+  foreach(bits 4 3 2)
+    add_test(NAME qwen38_flash_next_exl3.generate_${bits}bpw
+      COMMAND qwen38_flash_next_exl3_generate_test ${bits})
+    set_tests_properties(qwen38_flash_next_exl3.generate_${bits}bpw PROPERTIES
+      LABELS "qwen38_flash_next_exl3;hip;gpu;gfx1151;model;slow"
+      SKIP_RETURN_CODE 77)
+  endforeach()
 endif()
 
 # Decode and prompt-pass linear timings on random weights; run by hand.

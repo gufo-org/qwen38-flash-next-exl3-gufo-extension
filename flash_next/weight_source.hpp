@@ -4,9 +4,8 @@
 #define QWEN38_FLASH_NEXT_EXL3_FLASH_NEXT_WEIGHT_SOURCE_HPP_
 
 #include <cstdint>
+#include <gufo/ext/families/qwen/models/flash_next/weight_source.hpp>
 #include <memory>
-
-#include "src/models/qwen38_flash_next/weight_source.hpp"
 
 namespace gufo::ext::qwen38_flash_next_exl3 {
 

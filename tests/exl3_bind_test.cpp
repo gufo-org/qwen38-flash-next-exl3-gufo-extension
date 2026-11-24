@@ -1,12 +1,14 @@
 // Binds an EXL3 Flash-Next checkpoint on the host and checks the descriptors
 // Flash-Next receives: geometry, trellis linears carrying format_state, the
 // MTP block and the n-gram table. Prints the geometry and the timings.
-// Usage: qwen38_flash_next_exl3_bind_test [checkpoint directory]
-// Without an argument it reads QWEN38_FLASH_NEXT_EXL3_MODEL and skips (exit
-// 77) when neither names a checkpoint.
+// Usage: qwen38_flash_next_exl3_bind_test <bits class: 4, 3 or 2>
+// QWEN38_FLASH_NEXT_EXL3_MODEL lists checkpoint directories (separated by
+// ':'); the test takes the one of its bits class and skips (exit 77) when
+// none is listed.
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <sstream>
 #include <string>
 
 #include "exl3/pack.hpp"
@@ -15,10 +17,21 @@
 namespace exl3 = gufo::ext::qwen38_flash_next_exl3;
 
 int main(int argc, char** argv) {
+  const int bits = argc > 1 ? std::atoi(argv[1]) : 4;
   const char* env = std::getenv("QWEN38_FLASH_NEXT_EXL3_MODEL");
-  const std::string dir = argc > 1 ? argv[1] : env != nullptr ? env : "";
-  if (dir.empty() || !exl3::IsFlashNextPack(dir)) {
-    std::printf("SKIP: no EXL3 checkpoint (QWEN38_FLASH_NEXT_EXL3_MODEL)\n");
+  std::stringstream list(env != nullptr ? env : "");
+  std::string dir;
+  for (std::string entry; std::getline(list, entry, ':');) {
+    if (!entry.empty() && exl3::IsFlashNextPack(entry) &&
+        exl3::PackBits(entry) >= bits - 0.5 &&
+        exl3::PackBits(entry) < bits + 0.5)
+      dir = entry;
+  }
+  if (dir.empty()) {
+    std::printf(
+        "SKIP: no %d bpw EXL3 checkpoint in "
+        "QWEN38_FLASH_NEXT_EXL3_MODEL\n",
+        bits);
     return 77;
   }
   const auto start = std::chrono::steady_clock::now();

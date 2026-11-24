@@ -1,131 +1,238 @@
 // Loads an EXL3 checkpoint through Flash-Next's Model::Load with the EXL3
-// stages and weight source, prefills a chat prompt and greedily decodes,
-// then checks the answer and that the prompt pass and the decode path agree
-// on the next token after the same text.
-// Usage: qwen38_flash_next_exl3_generate_test [checkpoint] [tokens] [prompt]
-// Without a checkpoint argument it reads QWEN38_FLASH_NEXT_EXL3_MODEL and
-// skips (exit 77) when neither names a checkpoint.
+// stages and weight source and its own MTP block, then checks greedy
+// generation:
+// - the autoregressive answer, and that the prompt pass and the decode path
+//   agree on the next token after the same text;
+// - MTP decoding of one session against the autoregressive tokens;
+// - two MTP sessions decoded together, whose verification passes are wider
+//   than the grouped EXL3 decode route and take the per-projection one.
+// Usage: qwen38_flash_next_exl3_generate_test <bits class: 4, 3 or 2>
+// QWEN38_FLASH_NEXT_EXL3_MODEL lists checkpoint directories (separated by
+// ':'); the test takes the one of its bits class and skips (exit 77) when
+// none is listed.
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
-#include <numeric>
+#include <gufo/ext/families/qwen/control_tokens/control_tokens.hpp>
+#include <gufo/ext/families/qwen/models/flash_next/model.hpp>
+#include <gufo/ext/sampling.hpp>
+#include <memory>
+#include <optional>
+#include <span>
+#include <sstream>
 #include <string>
 #include <vector>
 
 #include "exl3/pack.hpp"
 #include "flash_next/stages.hpp"
 #include "flash_next/weight_source.hpp"
-#include "src/models/qwen38_flash_next/engine.hpp"
 
 namespace exl3 = gufo::ext::qwen38_flash_next_exl3;
 namespace flash_next = gufo::models::qwen38_flash_next;
+using gufo::core::SessionMode;
+
+namespace {
+
+constexpr std::uint32_t kContext = 8192;
+constexpr std::size_t kTokens = 48;
+
+int failures = 0;
+
+void Expect(bool ok, const std::string& what) {
+  if (!ok) {
+    std::fprintf(stderr, "FAIL: %s\n", what.c_str());
+    ++failures;
+  }
+}
+
+/// The listed checkpoint whose bits per weight round to `bits`.
+std::string FindPack(int bits) {
+  const char* env = std::getenv("QWEN38_FLASH_NEXT_EXL3_MODEL");
+  std::stringstream list(env != nullptr ? env : "");
+  for (std::string dir; std::getline(list, dir, ':');) {
+    if (!dir.empty() && exl3::IsFlashNextPack(dir) &&
+        exl3::PackBits(dir) >= bits - 0.5 && exl3::PackBits(dir) < bits + 0.5)
+      return dir;
+  }
+  return {};
+}
+
+std::string ChatPrompt(const std::string& question) {
+  using namespace gufo::tokenization;
+  return std::string(kImStart) + "user\n" + question + std::string(kImEnd) +
+         "\n" + std::string(kImStart) + "assistant\n<think>\n\n</think>\n\n";
+}
+
+std::int32_t Argmax(std::span<const float> logits) {
+  return static_cast<std::int32_t>(
+      std::max_element(logits.begin(), logits.end()) - logits.begin());
+}
+
+/// Greedy autoregressive tokens after `prompt`, the stop token excluded.
+std::vector<std::int32_t> Autoregressive(
+    flash_next::Model& model, const std::vector<std::int32_t>& prompt,
+    std::string* error) {
+  auto session =
+      model.CreateSession(SessionMode::kAutoregressive, kContext, error);
+  std::vector<std::int32_t> out;
+  if (!session || !session->Sync(prompt, error))
+    return out;
+  while (out.size() < kTokens) {
+    const std::int32_t best = Argmax(session->Logits());
+    if (model.IsStopToken(best))
+      break;
+    out.push_back(best);
+    if (!session->Evaluate(best, error))
+      return {};
+  }
+  return out;
+}
+
+struct Speculative {
+  std::unique_ptr<flash_next::Session> session;
+  std::optional<gufo::sampling::SamplerState> sampler;
+  std::vector<std::int32_t> out;
+  bool done{false};
+};
+
+bool Start(flash_next::Model& model, const std::vector<std::int32_t>& prompt,
+           Speculative* s, std::string* error) {
+  s->session = model.CreateSession(SessionMode::kSpeculative, kContext, error);
+  if (!s->session || !s->session->Sync(prompt, error))
+    return false;
+  const std::vector<gufo::sampling::TokenId> history(prompt.begin(),
+                                                     prompt.end());
+  gufo::sampling::SamplingConfig greedy;
+  greedy.temperature = 0.0F;
+  s->sampler.emplace(greedy, history);
+  return true;
+}
+
+/// Appends a step's tokens up to kTokens, the stop token excluded.
+void Append(flash_next::Model& model,
+            const flash_next::Session::DecodeResult& step, Speculative* s) {
+  for (const auto token : step.tokens) {
+    if (model.IsStopToken(token) || s->out.size() == kTokens) {
+      s->done = true;
+      break;
+    }
+    s->out.push_back(token);
+  }
+  s->done = s->done || step.stop || s->out.size() == kTokens;
+}
+
+/// Greedy MTP decoding of `sessions` together until each has kTokens.
+bool DecodeTogether(flash_next::Model& model,
+                    std::vector<Speculative*> sessions, std::string* error) {
+  for (int guard = 0; guard < 4 * static_cast<int>(kTokens); ++guard) {
+    std::vector<flash_next::Session::DecodeRequest> requests;
+    std::vector<flash_next::Session::DecodeResult> results(sessions.size());
+    std::vector<Speculative*> active;
+    for (Speculative* s : sessions) {
+      if (s->done)
+        continue;
+      requests.push_back({.session = s->session.get(),
+                          .max_tokens = kTokens - s->out.size(),
+                          .sampler = &*s->sampler,
+                          .result = &results[active.size()]});
+      active.push_back(s);
+    }
+    if (active.empty())
+      return true;
+    const bool ok = active.size() == 1
+                        ? active[0]->session->DecodeStep(requests[0].max_tokens,
+                                                         *active[0]->sampler,
+                                                         &results[0], error)
+                        : flash_next::Session::DecodeBatch(requests, error);
+    if (!ok)
+      return false;
+    for (std::size_t i = 0; i < active.size(); ++i)
+      Append(model, results[i], active[i]);
+  }
+  *error = "MTP decoding made no progress";
+  return false;
+}
+
+}  // namespace
 
 int main(int argc, char** argv) {
-  const char* env = std::getenv("QWEN38_FLASH_NEXT_EXL3_MODEL");
-  const std::string dir = argc > 1 ? argv[1] : env != nullptr ? env : "";
-  if (dir.empty() || !exl3::IsFlashNextPack(dir)) {
-    std::printf("SKIP: no EXL3 checkpoint (QWEN38_FLASH_NEXT_EXL3_MODEL)\n");
+  const int bits = argc > 1 ? std::atoi(argv[1]) : 4;
+  const std::string dir = FindPack(bits);
+  if (dir.empty()) {
+    std::printf(
+        "SKIP: no %d bpw EXL3 checkpoint in "
+        "QWEN38_FLASH_NEXT_EXL3_MODEL\n",
+        bits);
     return 77;
   }
-  const int steps = argc > 2 ? std::atoi(argv[2]) : 32;
-  const bool own_prompt = argc > 3;
-  const std::string question =
-      own_prompt ? argv[3]
-                 : "What is the capital of France? Answer in one sentence.";
-  const std::string prompt = "<|im_start|>user\n" + question +
-                             "<|im_end|>\n<|im_start|>assistant\n<think>\n\n"
-                             "</think>\n\n";
   using clock = std::chrono::steady_clock;
-  const auto ms = [](clock::time_point a, clock::time_point b) {
-    return std::chrono::duration<double, std::milli>(b - a).count();
-  };
   const auto t0 = clock::now();
   std::string error;
   flash_next::ModelOptions options;
-  options.max_context = 8192;
+  options.max_context = kContext;
+  options.mtp_model_path = dir;  // the checkpoint's own MTP block
+  options.decode_concurrency = 2;
   auto model = flash_next::Model::Load(dir, options, exl3::CreateExl3Stages(),
                                        exl3::CreateExl3WeightSource(), &error);
   if (!model) {
     std::fprintf(stderr, "load: %s\n", error.c_str());
     return 1;
   }
-  const auto t1 = clock::now();
-  auto session = model->CreateSession(gufo::core::SessionMode::kAutoregressive,
-                                      8192, &error);
-  if (!session) {
-    std::fprintf(stderr, "session: %s\n", error.c_str());
-    return 1;
-  }
-  const std::vector<std::int32_t> tokens = model->Tokenize(prompt);
-  const auto t2 = clock::now();
-  if (!session->Sync(tokens, &error)) {
-    std::fprintf(stderr, "prefill: %s\n", error.c_str());
-    return 1;
-  }
-  const auto t3 = clock::now();
-  const auto argmax = [](std::span<const float> logits) {
-    return static_cast<std::int32_t>(
-        std::max_element(logits.begin(), logits.end()) - logits.begin());
-  };
-  std::vector<std::int32_t> out;
-  for (int s = 0; s < steps; ++s) {
-    const auto logits = session->Logits();
-    if (s == 0) {
-      std::vector<int> order(logits.size());
-      std::iota(order.begin(), order.end(), 0);
-      std::partial_sort(order.begin(), order.begin() + 5, order.end(),
-                        [&](int a, int b) { return logits[a] > logits[b]; });
-      std::printf("top5:");
-      for (int i = 0; i < 5; ++i)
-        std::printf(" %d(%s)=%.3f", order[i],
-                    model->TokenText(order[i]).c_str(), logits[order[i]]);
-      std::printf("\n");
-    }
-    const std::int32_t best = argmax(logits);
-    out.push_back(best);
-    if (model->IsStopToken(best))
-      break;
-    if (!session->Evaluate(best, &error)) {
-      std::fprintf(stderr, "decode: %s\n", error.c_str());
-      return 1;
-    }
-  }
-  const auto t4 = clock::now();
-  const std::string text = model->Decode(out);
-  std::printf("text: %s\n", text.c_str());
   std::printf(
-      "load %.0f ms, prefill %zu tok %.1f ms (%.1f tok/s), decode %zu tok "
-      "%.1f ms (%.2f tok/s)\n",
-      ms(t0, t1), tokens.size(), ms(t2, t3),
-      tokens.size() / (ms(t2, t3) / 1000.0), out.size(), ms(t3, t4),
-      out.size() / (ms(t3, t4) / 1000.0));
-  if (own_prompt)
-    return 0;
-  int failures = 0;
-  if (text.find("Paris") == std::string::npos) {
-    std::fprintf(stderr, "FAIL: the answer does not name Paris\n");
-    ++failures;
-  }
-  // The prompt pass (matrix-core and Q8_0 routes) against the decode path
-  // (trellis GEMVs), token by token over the same text.
-  auto other = model->CreateSession(gufo::core::SessionMode::kAutoregressive,
-                                    8192, &error);
-  if (!other) {
-    std::fprintf(stderr, "session: %s\n", error.c_str());
+      "%s loaded in %.0f ms\n", dir.c_str(),
+      std::chrono::duration<double, std::milli>(clock::now() - t0).count());
+  const auto first = model->Tokenize(
+      ChatPrompt("What is the capital of France? Answer in one sentence."));
+  const auto second =
+      model->Tokenize(ChatPrompt("Count from 1 to 30, separated by commas."));
+
+  // Autoregressive answers, and the prompt pass against the decode path.
+  const auto ar_first = Autoregressive(*model, first, &error);
+  const auto ar_second = Autoregressive(*model, second, &error);
+  if (ar_first.empty() || ar_second.empty()) {
+    std::fprintf(stderr, "autoregressive: %s\n", error.c_str());
     return 1;
   }
-  for (const auto id : tokens) {
-    if (!other->Evaluate(id, &error)) {
-      std::fprintf(stderr, "decode: %s\n", error.c_str());
-      return 1;
+  const std::string text = model->Decode(ar_first);
+  std::printf("text: %s\n", text.c_str());
+  Expect(text.find("Paris") != std::string::npos, "the answer names Paris");
+  {
+    auto stepped =
+        model->CreateSession(SessionMode::kAutoregressive, kContext, &error);
+    for (const auto id : first) {
+      if (!stepped || !stepped->Evaluate(id, &error)) {
+        std::fprintf(stderr, "decode: %s\n", error.c_str());
+        return 1;
+      }
     }
+    Expect(Argmax(stepped->Logits()) == ar_first.front(),
+           "prompt and decode paths agree on the next token");
   }
-  const std::int32_t decoded = argmax(other->Logits());
-  std::printf("prefill vs decode next token: %d / %d\n", out.front(), decoded);
-  if (decoded != out.front()) {
-    std::fprintf(stderr, "FAIL: prompt and decode paths disagree\n");
-    ++failures;
+
+  // One MTP session: the same greedy tokens, from accepted drafts.
+  Speculative solo;
+  if (!Start(*model, first, &solo, &error) ||
+      !DecodeTogether(*model, {&solo}, &error)) {
+    std::fprintf(stderr, "mtp: %s\n", error.c_str());
+    return 1;
   }
+  const auto& stats = solo.session->Statistics();
+  std::printf("mtp: %llu drafted, %llu accepted\n",
+              static_cast<unsigned long long>(stats.drafted),
+              static_cast<unsigned long long>(stats.accepted));
+  Expect(solo.out == ar_first, "MTP tokens equal autoregressive tokens");
+  Expect(stats.drafted > 0 && stats.accepted > 0, "MTP accepted drafts");
+
+  // Two MTP sessions verified in one pass: wider than the grouped route.
+  Speculative a;
+  Speculative b;
+  if (!Start(*model, first, &a, &error) || !Start(*model, second, &b, &error) ||
+      !DecodeTogether(*model, {&a, &b}, &error)) {
+    std::fprintf(stderr, "batched mtp: %s\n", error.c_str());
+    return 1;
+  }
+  Expect(a.out == ar_first, "batched MTP session 1 equals autoregressive");
+  Expect(b.out == ar_second, "batched MTP session 2 equals autoregressive");
   return failures == 0 ? 0 : 1;
 }

@@ -2,9 +2,8 @@
 #ifndef QWEN38_FLASH_NEXT_EXL3_FLASH_NEXT_STAGES_HPP_
 #define QWEN38_FLASH_NEXT_EXL3_FLASH_NEXT_STAGES_HPP_
 
+#include <gufo/ext/families/qwen/models/flash_next/stages.hpp>
 #include <memory>
-
-#include "src/models/qwen38_flash_next/stages.hpp"
 
 namespace gufo::ext::qwen38_flash_next_exl3 {
 
