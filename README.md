@@ -13,6 +13,7 @@ EXL3 linears. `--speculative mtp` drafts from the checkpoint's own MTP block
 and needs no `--mtp-model`.
 
 ```sh
+gufo extension install qwen38_flash_next_exl3   # Linux, Gufo 831c55d3 or later
 gufo model install flash-next-exl3-4bpw
 gufo serve llm --model flash-next-exl3-4bpw --speculative mtp --context 32768
 gufo prompt -m /path/to/4.05bpw_h6_ng6 -p "Hello" --think off --speculative mtp
@@ -43,6 +44,7 @@ Maintainer: Federico Izzo ([fedeizzo](https://github.com/fedeizzo)).
 
 | Extension | Gufo | Notes |
 | --- | --- | --- |
+| 0.1.1 | `831c55d3ef943f675805dca8bf6b0c5fb4b5d812` | Needs Flash-Next `Stages`/`WeightSource` ([#1364](https://github.com/gufo-org/gufo/pull/1364), merged), `depends` linking and exports ([#1360](https://github.com/gufo-org/gufo/pull/1360), merged), `QwenTokenizer::CreateFromTokenizerJson` ([#1359](https://github.com/gufo-org/gufo/pull/1359), merged), `gufo::qwen_family` ([#1361](https://github.com/gufo-org/gufo/pull/1361), merged) and the public Flash-Next headers and hooks ([#1372](https://github.com/gufo-org/gufo/pull/1372), merged) and loadable modules with `depends` ([#1376](https://github.com/gufo-org/gufo/pull/1376), merged; Linux only) |
 | 0.1.0 | `abebd1c08e9c57996f963715695e6c1f1410a7da` | Needs Flash-Next `Stages`/`WeightSource` ([#1364](https://github.com/gufo-org/gufo/pull/1364), merged), `depends` linking and exports ([#1360](https://github.com/gufo-org/gufo/pull/1360), merged), `QwenTokenizer::CreateFromTokenizerJson` ([#1359](https://github.com/gufo-org/gufo/pull/1359), merged), `gufo::qwen_family` ([#1361](https://github.com/gufo-org/gufo/pull/1361), merged) and the public Flash-Next headers and hooks ([#1372](https://github.com/gufo-org/gufo/pull/1372), merged) |
 
 The extension depends on `qwen38_flash_next` (`"depends"` in
