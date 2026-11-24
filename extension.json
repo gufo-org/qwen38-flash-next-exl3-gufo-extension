@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "qwen38_flash_next_exl3",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "api_version": ">= 0.3.46",
   "entry": "qwen38_flash_next_exl3_register",
   "registration_target": "gufo_qwen38_flash_next_exl3",
